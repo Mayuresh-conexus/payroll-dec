@@ -89,19 +89,54 @@
                                         <th class="px-4 py-3 text-left">Code</th>
                                         <th class="px-4 py-3 text-left">Name</th>
                                         <th class="px-4 py-3 text-left">Department</th>
-                                        <th class="px-4 py-3 text-center">Total days</th>
-                                        <th class="px-4 py-3 text-center">Present days</th>
+                                        <th class="px-4 py-3 text-left">Days (Mon–Sat, Sun off)</th>
+                                        <th class="px-4 py-3 text-center">Present</th>
                                         <th class="px-4 py-3 text-center">Absent</th>
                                     </tr>
                                 </thead>
+
                                 <tbody class="divide-y divide-slate-100">
                                     @forelse($dailyEmployees as $employee)
                                         @php
                                             $att = $dailyAttendances[$employee->id] ?? null;
-                                            $present = $att->present_days ?? 6;
-                                            $total = $att->total_working_days ?? 6;
+                                            $total = 6;
+
+                                            $defaultMap = [
+                                                'mon' => 1,
+                                                'tue' => 1,
+                                                'wed' => 1,
+                                                'thu' => 1,
+                                                'fri' => 1,
+                                                'sat' => 1,
+                                            ];
+
+                                            if ($att && is_array($att->days_map)) {
+                                                $initialDays = array_merge($defaultMap, $att->days_map);
+                                            } else {
+                                                $initialDays = $defaultMap;
+                                            }
+
+                                            $present = $att->present_days ?? array_sum($initialDays);
+
                                         @endphp
-                                        <tr class="hover:bg-slate-50/80" x-data="{ present: {{ $present }}, total: {{ $total }} }">
+
+                                        <tr class="hover:bg-slate-50/80" x-data="{
+                                            totalWork: {{ $total }},
+                                            days: {
+                                                mon: {{ $initialDays['mon'] }},
+                                                tue: {{ $initialDays['tue'] }},
+                                                wed: {{ $initialDays['wed'] }},
+                                                thu: {{ $initialDays['thu'] }},
+                                                fri: {{ $initialDays['fri'] }},
+                                                sat: {{ $initialDays['sat'] }},
+                                            },
+                                            get presentCount() {
+                                                return this.days.mon + this.days.tue + this.days.wed + this.days.thu + this.days.fri + this.days.sat;
+                                            },
+                                            get absentCount() {
+                                                return this.totalWork - this.presentCount;
+                                            }
+                                        }">
                                             <td class="px-4 py-3 font-mono text-xs text-slate-600">
                                                 {{ $employee->employee_code }}
                                             </td>
@@ -111,34 +146,93 @@
                                             <td class="px-4 py-3 text-sm text-slate-600">
                                                 {{ $employee->department ?? 'No dept' }}
                                             </td>
-                                            <td class="px-4 py-3 text-center text-sm text-slate-700">
-                                                <span
-                                                    class="inline-flex items-center justify-center px-2 py-1 rounded-full bg-slate-100">
-                                                    <span class="font-semibold">{{ $total }}</span>
-                                                    <span class="ml-1 text-xs text-slate-500">days</span>
-                                                </span>
-                                            </td>
-                                            <td class="px-4 py-3 text-center">
-                                                <div class="inline-flex items-center gap-1">
-                                                    <button type="button" @click="present = Math.max(0, present - 1)"
-                                                        class="w-7 h-7 flex items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50">
-                                                        -
+
+                                            {{-- Days grid --}}
+                                            <td class="px-4 py-3">
+                                                <div class="flex flex-wrap items-center gap-1.5 text-xs">
+                                                    {{-- Mon --}}
+                                                    <button type="button" @click="days.mon = days.mon ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
+                                                        :class="days.mon ?
+                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                        Mo
                                                     </button>
-                                                    <input type="number"
-                                                        class="w-14 text-center rounded-md border border-slate-200 text-sm focus:ring-slate-500 focus:border-slate-500"
-                                                        x-model="present" min="0" :max="total">
-                                                    <button type="button" @click="present = Math.min(total, present + 1)"
-                                                        class="w-7 h-7 flex items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50">
-                                                        +
+                                                    {{-- Tue --}}
+                                                    <button type="button" @click="days.tue = days.tue ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
+                                                        :class="days.tue ?
+                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                        Tu
                                                     </button>
+                                                    {{-- Wed --}}
+                                                    <button type="button" @click="days.wed = days.wed ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
+                                                        :class="days.wed ?
+                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                        We
+                                                    </button>
+                                                    {{-- Thu --}}
+                                                    <button type="button" @click="days.thu = days.thu ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
+                                                        :class="days.thu ?
+                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                        Th
+                                                    </button>
+                                                    {{-- Fri --}}
+                                                    <button type="button" @click="days.fri = days.fri ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
+                                                        :class="days.fri ?
+                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                        Fr
+                                                    </button>
+                                                    {{-- Sat --}}
+                                                    <button type="button" @click="days.sat = days.sat ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
+                                                        :class="days.sat ?
+                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                        Sa
+                                                    </button>
+                                                    {{-- Sun fixed off --}}
+                                                    <span
+                                                        class="w-8 h-8 rounded-full border border-slate-200 bg-slate-100 text-slate-400 flex items-center justify-center font-semibold">
+                                                        Su
+                                                    </span>
                                                 </div>
-                                                <input type="hidden" :value="present"
-                                                    name="attendance[{{ $employee->id }}][present_days]">
+
+                                                {{-- Hidden inputs to submit --}}
+                                                <input type="hidden" name="attendance[{{ $employee->id }}][days][mon]"
+                                                    x-bind:value="days.mon">
+                                                <input type="hidden" name="attendance[{{ $employee->id }}][days][tue]"
+                                                    x-bind:value="days.tue">
+                                                <input type="hidden" name="attendance[{{ $employee->id }}][days][wed]"
+                                                    x-bind:value="days.wed">
+                                                <input type="hidden" name="attendance[{{ $employee->id }}][days][thu]"
+                                                    x-bind:value="days.thu">
+                                                <input type="hidden" name="attendance[{{ $employee->id }}][days][fri]"
+                                                    x-bind:value="days.fri">
+                                                <input type="hidden" name="attendance[{{ $employee->id }}][days][sat]"
+                                                    x-bind:value="days.sat">
+                                            </td>
+
+                                            {{-- Summary: present / absent --}}
+                                            <td class="px-4 py-3 text-center text-sm">
+                                                <span
+                                                    class="inline-flex items-center justify-center px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs">
+                                                    <span x-text="presentCount"></span>
+                                                    <span class="ml-1">present</span>
+                                                </span>
                                             </td>
                                             <td class="px-4 py-3 text-center text-sm">
                                                 <span
-                                                    class="inline-flex items-center justify-center px-2 py-1 rounded-full bg-amber-50 text-amber-700 text-xs"
-                                                    x-text="(total - present) + ' day(s)'">
+                                                    class="inline-flex items-center justify-center px-2 py-1 rounded-full bg-amber-50 text-amber-700 text-xs">
+                                                    <span x-text="absentCount"></span>
+                                                    <span class="ml-1">absent</span>
                                                 </span>
                                             </td>
                                         </tr>
@@ -149,6 +243,7 @@
                                             </td>
                                         </tr>
                                     @endforelse
+
                                 </tbody>
                             </table>
                         </div>

@@ -16,6 +16,7 @@ return new class extends Migration
     $table->foreignId('employee_id')->constrained()->onDelete('cascade');
     $table->integer('year');
     $table->integer('week_number');
+    $table->json('days_map')->nullable();
     $table->integer('total_working_days')->default(6);
     $table->integer('present_days')->default(6);
     $table->boolean('locked')->default(false);

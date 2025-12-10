@@ -14,4 +14,9 @@ class HourlyAttendance extends Model
         'overtime_hours',
         'locked',
     ];
+
+    public function employee()
+{
+    return $this->belongsTo(Employee::class);
+}
 }

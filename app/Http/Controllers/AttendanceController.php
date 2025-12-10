@@ -40,38 +40,63 @@ class AttendanceController extends Controller
     }
 
     public function storeDailyRate(Request $request)
-    {
-        $data = $request->validate([
-            'year'                     => 'required|integer',
-            'week'                     => 'required|integer|min:1|max:52',
-            'attendance'               => 'required|array',
-            'attendance.*.present_days'=> 'required|integer|min:0|max:6',
-        ]);
+{
+    $data = $request->validate([
+        'year'                       => 'required|integer',
+        'week'                       => 'required|integer|min:1|max:52',
+        'attendance'                 => 'required|array',
+        'attendance.*.days'          => 'required|array',
+        'attendance.*.days.*'        => 'in:0,1',
+    ]);
 
-        $year = $data['year'];
-        $week = $data['week'];
+    $year = $data['year'];
+    $week = $data['week'];
 
-        foreach ($data['attendance'] as $employeeId => $row) {
-            DailyRateAttendance::updateOrCreate(
-                [
-                    'employee_id' => $employeeId,
-                    'year'        => $year,
-                    'week_number' => $week,
-                ],
-                [
-                    'total_working_days' => 6,
-                    'present_days'       => $row['present_days'],
-                    'locked'             => false,
-                ]
-            );
-        }
+    foreach ($data['attendance'] as $employeeId => $row) {
+        $days = $row['days'] ?? [];
 
-        return redirect()->route('attendance.index', [
-            'year' => $year,
-            'week' => $week,
-            'tab'  => 'daily',
-        ])->with('success', 'Daily rate attendance saved');
+        // Make sure all keys exist
+        $daysFull = [
+            'mon' => isset($days['mon']) ? (int) $days['mon'] : 0,
+            'tue' => isset($days['tue']) ? (int) $days['tue'] : 0,
+            'wed' => isset($days['wed']) ? (int) $days['wed'] : 0,
+            'thu' => isset($days['thu']) ? (int) $days['thu'] : 0,
+            'fri' => isset($days['fri']) ? (int) $days['fri'] : 0,
+            'sat' => isset($days['sat']) ? (int) $days['sat'] : 0,
+            // sun is always off
+            'sun' => 0,
+        ];
+
+        $presentDays = $daysFull['mon']
+            + $daysFull['tue']
+            + $daysFull['wed']
+            + $daysFull['thu']
+            + $daysFull['fri']
+            + $daysFull['sat'];
+
+        DailyRateAttendance::updateOrCreate(
+            [
+                'employee_id' => $employeeId,
+                'year'        => $year,
+                'week_number' => $week,
+            ],
+            [
+                'total_working_days' => 6,
+                'present_days'       => $presentDays,
+                'days_map'           => $daysFull,
+                'locked'             => false,
+            ]
+        );
     }
+
+    return redirect()->route('attendance.index', [
+        'year' => $year,
+        'week' => $week,
+        'tab'  => 'daily',
+    ])->with('success', 'Daily rate attendance saved');
+}
+
+
 
     public function storeHourly(Request $request)
     {

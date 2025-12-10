@@ -114,7 +114,7 @@
                 </a>
 
                 {{-- Payroll (static for now) --}}
-                <a href="#"
+                <a href="{{ route('payroll.index') }}"
                     class="group flex items-center gap-3 px-3 py-2 rounded-lg
                       hover:bg-slate-800 hover:text-white
                       transition-colors duration-150 text-slate-200">

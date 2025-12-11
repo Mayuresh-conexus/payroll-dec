@@ -1,28 +1,42 @@
 <?php
 
-
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\PayrollController;
+use App\Http\Controllers\AuthController;
 
-// Dashboard
-Route::view('/', 'dashboard')->name('dashboard');
+// Login (only for guests)
+Route::middleware('guest')->group(function () {
+    Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
+    Route::post('/login', [AuthController::class, 'login'])->name('login.attempt');
+});
 
-// Employees CRUD
-Route::resource('employees', EmployeeController::class)->except(['show']);
+// Logout (only for logged in users)
+Route::post('/logout', [AuthController::class, 'logout'])
+    ->middleware('auth')
+    ->name('logout');
 
-// Attendance Management
-Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index');
-Route::post('/attendance/daily-rate', [AttendanceController::class, 'storeDailyRate'])->name('attendance.daily_rate.store');
-Route::post('/attendance/hourly', [AttendanceController::class, 'storeHourly'])->name('attendance.hourly.store');
+// Protected area
+Route::middleware('auth')->group(function () {
 
+    // Dashboard
+    Route::get('/', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard');
 
-// Payroll Management
-Route::get('/payroll', [PayrollController::class, 'index'])->name('payroll.index');
-Route::post('/payroll/save-week', [PayrollController::class, 'saveWeek'])->name('payroll.saveWeek');
-Route::get('/payroll/export-week', [PayrollController::class, 'exportWeekCsv'])->name('payroll.exportWeekCsv');
+    // Employees CRUD
+    Route::resource('employees', EmployeeController::class)->except(['show']);
 
-// attendance style report under payroll
-Route::get('/payroll/weekly-report', [PayrollController::class, 'weeklyReport'])->name('payroll.weekly.report');
-Route::get('/payroll/weekly-report/csv', [PayrollController::class, 'weeklyReportCsv'])->name('payroll.weekly.report.csv');
+    // Attendance Management
+    Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index');
+    Route::post('/attendance/daily-rate', [AttendanceController::class, 'storeDailyRate'])->name('attendance.daily_rate.store');
+    Route::post('/attendance/hourly', [AttendanceController::class, 'storeHourly'])->name('attendance.hourly.store');
+
+    // Payroll Management
+    Route::get('/payroll', [PayrollController::class, 'index'])->name('payroll.index');
+    Route::post('/payroll/save-week', [PayrollController::class, 'saveWeek'])->name('payroll.saveWeek');
+    Route::get('/payroll/export-week', [PayrollController::class, 'exportWeekCsv'])->name('payroll.exportWeekCsv');
+
+    // attendance style report under payroll
+    Route::get('/payroll/weekly-report', [PayrollController::class, 'weeklyReport'])->name('payroll.weekly.report');
+    Route::get('/payroll/weekly-report/csv', [PayrollController::class, 'weeklyReportCsv'])->name('payroll.weekly.report.csv');
+});

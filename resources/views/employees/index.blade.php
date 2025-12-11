@@ -4,7 +4,12 @@
 @section('page_title', 'Employees')
 
 @section('content')
-    <div x-data="{ openCreate: false }" class="space-y-6">
+    <div x-data="{
+        openCreate: false,
+        openEdit: false,
+        editingEmployee: null,
+        baseUpdateUrl: '{{ url('employees') }}'
+    }" class="space-y-6">
 
         {{-- Header actions --}}
         <div class="flex items-center justify-between">
@@ -18,25 +23,6 @@
                 + Add Employee
             </button>
         </div>
-
-        {{-- Filters 
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-wrap items-center gap-3 text-sm">
-            <div class="flex items-center gap-2">
-                <span class="text-slate-500">Search:</span>
-                <input type="text"
-                    class="rounded-lg border-slate-200 text-sm focus:ring-slate-500 focus:border-slate-500"
-                    placeholder="Name or code (static for now)">
-            </div>
-
-            <div class="flex items-center gap-2">
-                <span class="text-slate-500">Type:</span>
-                <select class="rounded-lg border-slate-200 text-sm focus:ring-slate-500 focus:border-slate-500">
-                    <option value="">All</option>
-                    <option value="daily_rate">Daily rate</option>
-                    <option value="hourly">Hourly</option>
-                </select>
-            </div>
-        </div> --}}
 
         {{-- Table card --}}
         <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -99,21 +85,13 @@
                             </td>
                             <td class="px-4 py-3 text-right">
                                 <div class="flex justify-end items-center gap-2 text-slate-500">
-
-                                    {{-- View - for now keep static or later route to employees.show --}}
-                                    <button type="button" data-tooltip="View"
-                                        class="p-1.5 rounded-md hover:bg-slate-100 hover:text-slate-700 transition">
-                                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none"
-                                            viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                                            <path stroke-linecap="round" stroke-linejoin="round"
-                                                d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8S2 12 2 12Z" />
-                                            <path stroke-linecap="round" stroke-linejoin="round"
-                                                d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
-                                        </svg>
-                                    </button>
-
-                                    {{-- Edit - you can later hook this to open an edit modal --}}
-                                    <button type="button" data-tooltip="Edit"
+                                    {{-- Edit --}}
+                                    <button type="button"
+                                        @click="
+                                            openEdit = true;
+                                            editingEmployee = {{ $employee->toJson() }};
+                                        "
+                                        data-tooltip="Edit"
                                         class="p-1.5 rounded-md hover:bg-blue-50 hover:text-blue-600 transition">
                                         <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none"
                                             viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -122,7 +100,7 @@
                                         </svg>
                                     </button>
 
-                                    {{-- Delete - real route now --}}
+                                    {{-- Delete --}}
                                     <form action="{{ route('employees.destroy', $employee->id) }}" method="POST"
                                         class="inline" onsubmit="return confirm('Delete this employee?')">
                                         @csrf
@@ -162,6 +140,7 @@
             class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
             <div @click.away="openCreate = false"
                 class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 sm:p-7 space-y-6" x-data="{ empType: 'daily_rate' }">
+
                 {{-- Header --}}
                 <div class="flex items-start justify-between gap-4">
                     <div>
@@ -243,7 +222,6 @@
                                     <option value="daily_rate">Daily rate (CTC)</option>
                                     <option value="hourly">Hourly</option>
                                 </select>
-
                             </div>
 
                             <div>
@@ -301,13 +279,178 @@
             </div>
         </div>
 
+        {{-- Edit employee modal --}}
+        <div x-show="openEdit && editingEmployee" x-cloak
+            class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+            <div @click.away="openEdit = false"
+                class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 sm:p-7 space-y-6" x-data>
+                {{-- Header --}}
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-900">
+                            Edit employee
+                        </h2>
+                        <p class="mt-1 text-xs text-slate-500">
+                            Update details for this employee.
+                        </p>
+                    </div>
+                    <button type="button"
+                        class="inline-flex items-center justify-center rounded-full w-8 h-8 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                        @click="openEdit = false">
+                        ✕
+                    </button>
+                </div>
 
-        {{-- Simple script to toggle placeholder rate fields if you want later --}}
+                {{-- Form --}}
+                <form method="POST" :action="baseUpdateUrl + '/' + (editingEmployee ? editingEmployee.id : '')"
+                    class="space-y-5">
+                    @csrf
+                    @method('PUT')
+
+                    {{-- Basic details --}}
+                    <div class="space-y-3">
+                        <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Basic details
+                        </h3>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Employee code <span class="text-rose-500">*</span>
+                                </label>
+                                <input type="text" name="employee_code" required
+                                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
+                                    x-model="editingEmployee.employee_code">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Name <span class="text-rose-500">*</span>
+                                </label>
+                                <input type="text" name="name" required
+                                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
+                                    x-model="editingEmployee.name">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Joining date
+                                </label>
+                                <input type="date" name="joining_date"
+                                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
+                                    x-model="editingEmployee.joining_date">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Department
+                                </label>
+                                <input type="text" name="department"
+                                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
+                                    x-model="editingEmployee.department">
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="border-slate-100">
+
+                    {{-- Type and rate --}}
+                    <div class="space-y-3">
+                        <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Pay type and rate
+                        </h3>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
+                            <div class="sm:col-span-1">
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Type <span class="text-rose-500">*</span>
+                                </label>
+                                <select name="type" x-model="editingEmployee.type"
+                                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none bg-white">
+                                    <option value="daily_rate">Daily rate (CTC)</option>
+                                    <option value="hourly">Hourly</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Daily rate
+                                </label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">
+                                        ₹
+                                    </span>
+                                    <input type="number" step="0.01" name="daily_rate"
+                                        x-model="editingEmployee.daily_rate"
+                                        :disabled="editingEmployee && editingEmployee.type !== 'daily_rate'"
+                                        class="w-full rounded-lg border border-slate-200 pl-7 pr-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none">
+                                </div>
+                                <p class="mt-1 text-[11px] text-slate-400"
+                                    x-show="editingEmployee && editingEmployee.type !== 'daily_rate'">
+                                    Enabled only when type is Daily rate.
+                                </p>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Hourly rate
+                                </label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">
+                                        ₹
+                                    </span>
+                                    <input type="number" step="0.01" name="hourly_rate"
+                                        x-model="editingEmployee.hourly_rate"
+                                        :disabled="editingEmployee && editingEmployee.type !== 'hourly'"
+                                        class="w-full rounded-lg border border-slate-200 pl-7 pr-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none">
+                                </div>
+                                <p class="mt-1 text-[11px] text-slate-400"
+                                    x-show="editingEmployee && editingEmployee.type !== 'hourly'">
+                                    Enabled only when type is Hourly.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="border-slate-100">
+
+                    {{-- Active status --}}
+                    <input type="hidden" name="is_active" value="0">
+
+                    <label class="inline-flex items-center gap-2 text-xs text-slate-600">
+                        <input type="checkbox" name="is_active" value="1"
+                            x-bind:checked="editingEmployee && editingEmployee.is_active"
+                            class="rounded border-slate-300 text-slate-700 focus:ring-slate-500">
+                        <span>Employee is active</span>
+                    </label>
+
+
+
+
+
+                    {{-- Footer buttons --}}
+                    <div class="flex flex-col sm:flex-row justify-end gap-3 pt-1">
+                        <button type="button" @click="openEdit = false"
+                            class="inline-flex justify-center px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                            class="inline-flex justify-center px-4 py-2 rounded-lg bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800">
+                            Update employee
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {{-- Optional old helper, no longer required for the modals, can be removed --}}
         <script>
             function updateRateFields(e) {
                 const type = e.target.value;
                 const daily = document.querySelector('input[name="daily_rate"]');
                 const hourly = document.querySelector('input[name="hourly_rate"]');
+
+                if (!daily || !hourly) return;
 
                 if (type === 'daily_rate') {
                     daily.removeAttribute('disabled');
@@ -320,4 +463,5 @@
                 }
             }
         </script>
-    @endsection
+    </div>
+@endsection

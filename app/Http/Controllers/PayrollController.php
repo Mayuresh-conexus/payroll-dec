@@ -21,47 +21,157 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 class PayrollController extends Controller
 {
     public function index(Request $request)
-    {
-        $year = $request->input('year', now()->year);
-        $week = $request->input('week', now()->weekOfYear);
+{
+    $year = (int) $request->input('year', now()->year);
+    $week = (int) $request->input('week', now()->weekOfYear);
 
-        $run = PayrollRun::with('items.employee')
-            ->where('year', $year)
-            ->where('week_number', $week)
-            ->first();
+    // 1. Check lock status per type for this week
+    $dailyLockedWeek = DailyRateAttendance::where('year', $year)
+        ->where('week_number', $week)
+        ->where('locked', true)
+        ->exists();
 
-        if ($run) {
-            $rows = $run->items->map(function (PayrollItem $item) {
-                return [
-                    'employee'        => $item->employee,
+    $hourlyLockedWeek = HourlyAttendance::where('year', $year)
+        ->where('week_number', $week)
+        ->where('locked', true)
+        ->exists();
+
+    // 2. Load any existing payroll run
+    $run = PayrollRun::with('items.employee')
+        ->where('year', $year)
+        ->where('week_number', $week)
+        ->first();
+
+    // 3. Always start from attendance based rows (fresh gross etc)
+    $rows = $this->buildRowsFromAttendance($year, $week);
+
+    // Index current rows by employee + type
+    $rowsByKey = $rows->keyBy(function (array $row) {
+        $emp = $row['employee'];
+        return ($emp ? $emp->id : 'emp0') . '|' . $row['type'];
+    });
+
+    if ($run) {
+        foreach ($run->items as $item) {
+            $employee = $item->employee;
+            if (! $employee) {
+                continue;
+            }
+
+            $key = $employee->id . '|' . $item->type;
+
+            $isDaily  = $item->type === 'daily_rate';
+            $isHourly = $item->type === 'hourly';
+
+            $usePayrollOnlyForThisType =
+                ($isDaily && $dailyLockedWeek) ||
+                ($isHourly && $hourlyLockedWeek);
+
+            if ($usePayrollOnlyForThisType) {
+                // 4a. Attendance locked: trust payroll completely for this type
+                $gross = (float) ($item->gross_amount ?? 0);
+                $cash  = (float) ($item->cash_amount ?? 0);
+
+                if ($cash < 0) {
+                    $cash = 0;
+                }
+                if ($cash > $gross) {
+                    $cash = $gross;
+                }
+
+                $rowsByKey[$key] = [
+                    'employee'        => $employee,
                     'type'            => $item->type,
                     'total_days'      => $item->total_days,
                     'present_days'    => $item->present_days,
                     'total_hours'     => $item->total_hours,
                     'overtime_hours'  => $item->overtime_hours,
-                    'gross_amount'    => $item->gross_amount,
-                    'cash_amount'     => $item->cash_amount,
-                    'bank_amount'     => $item->bank_amount,
+                    'gross_amount'    => $gross,
+                    'cash_amount'     => $cash,
+                    'bank_amount'     => $gross - $cash,
                 ];
-            });
-        } else {
-            $rows = $this->buildRowsFromAttendance((int) $year, (int) $week);
+            } else {
+                // 4b. Attendance not locked: use fresh attendance row, but cash from payroll if present
+                if ($rowsByKey->has($key)) {
+                    $row   = $rowsByKey->get($key);
+                    $gross = (float) ($row['gross_amount'] ?? 0);
+                    $cash  = (float) ($item->cash_amount ?? 0);
+
+                    if ($cash < 0) {
+                        $cash = 0;
+                    }
+                    if ($cash > $gross) {
+                        $cash = $gross;
+                    }
+
+                    $row['cash_amount'] = $cash;
+                    $row['bank_amount'] = $gross - $cash;
+
+                    $rowsByKey[$key] = $row;
+                } else {
+                    // Safety: payroll row exists but attendance row missing
+                    $gross = (float) ($item->gross_amount ?? 0);
+                    $cash  = (float) ($item->cash_amount ?? 0);
+
+                    if ($cash < 0) {
+                        $cash = 0;
+                    }
+                    if ($cash > $gross) {
+                        $cash = $gross;
+                    }
+
+                    $rowsByKey[$key] = [
+                        'employee'        => $employee,
+                        'type'            => $item->type,
+                        'total_days'      => $item->total_days,
+                        'present_days'    => $item->present_days,
+                        'total_hours'     => $item->total_hours,
+                        'overtime_hours'  => $item->overtime_hours,
+                        'gross_amount'    => $gross,
+                        'cash_amount'     => $cash,
+                        'bank_amount'     => $gross - $cash,
+                    ];
+                }
+            }
         }
+    } else {
+        // 5. No run at all: bank = gross - cash (cash is 0 by default)
+        $rowsByKey = $rowsByKey->map(function (array $row) {
+            $gross = (float) ($row['gross_amount'] ?? 0);
+            $cash  = (float) ($row['cash_amount'] ?? 0);
 
-        $totals = [
-            'gross' => $rows->sum('gross_amount'),
-            'cash'  => $rows->sum('cash_amount'),
-            'bank'  => $rows->sum('bank_amount'),
-        ];
+            if ($cash < 0) {
+                $cash = 0;
+            }
+            if ($cash > $gross) {
+                $cash = $gross;
+            }
 
-        return view('payroll.index', [
-            'year'   => $year,
-            'week'   => $week,
-            'run'    => $run,
-            'rows'   => $rows,
-            'totals' => $totals,
-        ]);
+            $row['cash_amount'] = $cash;
+            $row['bank_amount'] = $gross - $cash;
+
+            return $row;
+        });
     }
+
+    // Final rows collection
+    $rows = $rowsByKey->values();
+
+    $totals = [
+        'gross' => $rows->sum('gross_amount'),
+        'cash'  => $rows->sum('cash_amount'),
+        'bank'  => $rows->sum('bank_amount'),
+    ];
+
+    return view('payroll.index', [
+        'year'   => $year,
+        'week'   => $week,
+        'run'    => $run,
+        'rows'   => $rows,
+        'totals' => $totals,
+    ]);
+}
+
 
     protected function buildRowsFromAttendance(int $year, int $week)
     {

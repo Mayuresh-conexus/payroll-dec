@@ -193,13 +193,25 @@
                 totalBank: 0,
 
                 init(serverRows) {
-                    this.items = serverRows.map(row => ({
-                        gross: parseFloat(row.gross_amount ?? 0),
-                        cash: parseFloat(row.cash_amount ?? 0),
-                        bank: parseFloat(row.bank_amount ?? row.gross_amount ?? 0),
-                    }));
+                    this.items = serverRows.map(row => {
+                        const gross = parseFloat(row.gross_amount ?? 0);
+                        let cash = parseFloat(row.cash_amount ?? 0);
+
+                        if (isNaN(cash)) cash = 0;
+                        if (isNaN(gross)) gross = 0;
+
+                        if (cash < 0) cash = 0;
+                        if (cash > gross) cash = gross;
+
+                        return {
+                            gross: gross,
+                            cash: cash,
+                            bank: gross - cash,
+                        };
+                    });
                     this.recalculateTotals();
                 },
+
 
                 updateBank(index) {
                     const item = this.items[index];

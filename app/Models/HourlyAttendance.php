@@ -15,8 +15,12 @@ class HourlyAttendance extends Model
         'locked',
     ];
 
+    protected $casts = [
+        'locked' => 'boolean',
+    ];
+
     public function employee()
-{
-    return $this->belongsTo(Employee::class);
-}
+    {
+        return $this->belongsTo(Employee::class);
+    }
 }

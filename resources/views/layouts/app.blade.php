@@ -180,9 +180,55 @@
                 </div>
 
                 <div class="flex items-center gap-4 text-sm">
-                    <span class="hidden sm:inline text-slate-500">Logged in as</span>
-                    <span class="font-medium">{{ auth()->user()->name ?? 'Admin' }}</span>
+
+                    <div
+                        class="flex items-center gap-3 px-3 py-1.5 rounded-full bg-white border border-slate-200 shadow-sm">
+
+                        {{-- Avatar with user icon --}}
+                        <div
+                            class="h-8 w-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-semibold">
+                            {{ strtoupper(mb_substr(auth()->user()->name ?? 'A', 0, 1)) }}
+                        </div>
+
+
+                        {{-- Name --}}
+                        <div class="hidden sm:flex flex-col leading-tight">
+                            <span class="text-[11px] uppercase tracking-wide text-slate-400">
+                                Logged in
+                            </span>
+                            <span class="text-sm font-medium text-slate-800 truncate max-w-[150px]">
+                                {{ auth()->user()->name ?? 'Admin' }}
+                            </span>
+                        </div>
+
+                        <div class="sm:hidden">
+                            <span class="text-sm font-medium text-slate-800">
+                                {{ auth()->user()->name ?? 'Admin' }}
+                            </span>
+                        </div>
+
+                        {{-- Logout button --}}
+                        <form action="{{ route('logout') }}" method="POST">
+                            @csrf
+                            <button type="submit"
+                                class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100">
+                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none"
+                                    xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="1.8">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M15.75 8.25L19.5 12m0 0l-3.75 3.75M19.5 12h-9" />
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M4.5 4.5h6A2.25 2.25 0 0 1 12.75 6.75v10.5A2.25 2.25 0 0 1 10.5 19.5h-6A2.25 2.25 0 0 1 2.25 17.25V6.75A2.25 2.25 0 0 1 4.5 4.5Z" />
+                                </svg>
+                                <span>Logout</span>
+                            </button>
+
+                        </form>
+
+
+                    </div>
+
                 </div>
+
             </header>
 
             {{-- Page body --}}

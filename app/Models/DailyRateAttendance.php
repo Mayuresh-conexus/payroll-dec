@@ -16,13 +16,13 @@ class DailyRateAttendance extends Model
         'days_map',
     ];
 
-     protected $casts = [
+    protected $casts = [
         'days_map' => 'array',
+        'locked'   => 'boolean',
     ];
-    
-public function employee()
-{
-    return $this->belongsTo(Employee::class);
-}
-}
 
+    public function employee()
+    {
+        return $this->belongsTo(Employee::class);
+    }
+}

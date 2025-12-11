@@ -4,7 +4,11 @@
 @section('page_title', 'Weekly attendance')
 
 @section('content')
-    <div x-data="{ tab: '{{ $tab }}' }" class="space-y-6">
+    <div x-data="{
+        tab: '{{ $tab }}',
+        dailyLocked: {{ $dailyWeekLocked ? 'true' : 'false' }},
+        hourlyLocked: {{ $hourlyWeekLocked ? 'true' : 'false' }}
+    }" class="space-y-6">
 
         {{-- Header --}}
         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -74,12 +78,43 @@
                     @csrf
                     <input type="hidden" name="year" value="{{ $year }}">
                     <input type="hidden" name="week" value="{{ $week }}">
+                    <input type="hidden" name="lock_week" x-bind:value="dailyLocked ? 1 : 0">
 
-                    <div class="p-4">
-                        <div class="mb-3 flex items-center justify-between text-xs text-slate-500">
-                            <span>All daily rate employees default to 6 working days. Adjust present days where
-                                needed.</span>
-                            <span>Week {{ $week }} - {{ $year }}</span>
+                    <div class="p-4 space-y-4">
+
+                        {{-- Week lock bar --}}
+                        <div class="flex items-center justify-between text-xs">
+                            <div class="flex items-center gap-3">
+                                <div class="flex items-center gap-2">
+                                    {{-- Modern toggle --}}
+                                    <button type="button" @click="dailyLocked = !dailyLocked"
+                                        class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200"
+                                        :class="dailyLocked ? 'bg-emerald-500' : 'bg-slate-300'">
+                                        <span
+                                            class="inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200"
+                                            :class="dailyLocked ? 'translate-x-5' : 'translate-x-1'">
+                                        </span>
+                                    </button>
+
+                                    <span class="text-slate-600"
+                                        x-text="dailyLocked ? 'Week locked' : 'Week editable'"></span>
+                                </div>
+
+                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium"
+                                    :class="dailyLocked
+                                        ?
+                                        'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                                        'bg-amber-50 text-amber-700 border border-amber-100'">
+                                    <span class="w-1.5 h-1.5 rounded-full"
+                                        :class="dailyLocked ? 'bg-emerald-500' : 'bg-amber-400'"></span>
+                                    <span
+                                        x-text="dailyLocked ? 'Attendance frozen for this week' : 'You can edit attendance for this week'"></span>
+                                </span>
+                            </div>
+
+                            <span class="text-slate-500">
+                                Week {{ $week }} - {{ $year }}
+                            </span>
                         </div>
 
                         <div class="overflow-x-auto">
@@ -89,7 +124,7 @@
                                         <th class="px-4 py-3 text-left">Code</th>
                                         <th class="px-4 py-3 text-left">Name</th>
                                         <th class="px-4 py-3 text-left">Department</th>
-                                        <th class="px-4 py-3 text-left">Days (Mon–Sat, Sun off)</th>
+                                        <th class="px-4 py-3 text-left">Days (Mon Sat, Sun off)</th>
                                         <th class="px-4 py-3 text-center">Present</th>
                                         <th class="px-4 py-3 text-center">Absent</th>
                                     </tr>
@@ -115,12 +150,9 @@
                                             } else {
                                                 $initialDays = $defaultMap;
                                             }
-
-                                            $present = $att->present_days ?? array_sum($initialDays);
-
                                         @endphp
 
-                                        <tr class="hover:bg-slate-50/80" x-data="{
+                                        <tr class="hover:bg-slate-50/80 transition" x-data="{
                                             totalWork: {{ $total }},
                                             days: {
                                                 mon: {{ $initialDays['mon'] }},
@@ -131,12 +163,14 @@
                                                 sat: {{ $initialDays['sat'] }},
                                             },
                                             get presentCount() {
-                                                return this.days.mon + this.days.tue + this.days.wed + this.days.thu + this.days.fri + this.days.sat;
+                                                return this.days.mon + this.days.tue + this.days.wed +
+                                                    this.days.thu + this.days.fri + this.days.sat;
                                             },
                                             get absentCount() {
                                                 return this.totalWork - this.presentCount;
                                             }
-                                        }">
+                                        }"
+                                            :class="dailyLocked ? 'opacity-60' : ''">
                                             <td class="px-4 py-3 font-mono text-xs text-slate-600">
                                                 {{ $employee->employee_code }}
                                             </td>
@@ -151,53 +185,83 @@
                                             <td class="px-4 py-3">
                                                 <div class="flex flex-wrap items-center gap-1.5 text-xs">
                                                     {{-- Mon --}}
-                                                    <button type="button" @click="days.mon = days.mon ? 0 : 1"
-                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
-                                                        :class="days.mon ?
-                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                    <button type="button" :disabled="dailyLocked"
+                                                        @click="if (!dailyLocked) days.mon = days.mon ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold transition"
+                                                        :class="dailyLocked
+                                                            ?
+                                                            'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' :
+                                                            (days.mon ?
+                                                                'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                                'bg-rose-50 text-rose-700 border-rose-200')">
                                                         Mo
                                                     </button>
+
                                                     {{-- Tue --}}
-                                                    <button type="button" @click="days.tue = days.tue ? 0 : 1"
-                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
-                                                        :class="days.tue ?
-                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                    <button type="button" :disabled="dailyLocked"
+                                                        @click="if (!dailyLocked) days.tue = days.tue ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold transition"
+                                                        :class="dailyLocked
+                                                            ?
+                                                            'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' :
+                                                            (days.tue ?
+                                                                'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                                'bg-rose-50 text-rose-700 border-rose-200')">
                                                         Tu
                                                     </button>
+
                                                     {{-- Wed --}}
-                                                    <button type="button" @click="days.wed = days.wed ? 0 : 1"
-                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
-                                                        :class="days.wed ?
-                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                    <button type="button" :disabled="dailyLocked"
+                                                        @click="if (!dailyLocked) days.wed = days.wed ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold transition"
+                                                        :class="dailyLocked
+                                                            ?
+                                                            'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' :
+                                                            (days.wed ?
+                                                                'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                                'bg-rose-50 text-rose-700 border-rose-200')">
                                                         We
                                                     </button>
+
                                                     {{-- Thu --}}
-                                                    <button type="button" @click="days.thu = days.thu ? 0 : 1"
-                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
-                                                        :class="days.thu ?
-                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                    <button type="button" :disabled="dailyLocked"
+                                                        @click="if (!dailyLocked) days.thu = days.thu ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold transition"
+                                                        :class="dailyLocked
+                                                            ?
+                                                            'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' :
+                                                            (days.thu ?
+                                                                'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                                'bg-rose-50 text-rose-700 border-rose-200')">
                                                         Th
                                                     </button>
+
                                                     {{-- Fri --}}
-                                                    <button type="button" @click="days.fri = days.fri ? 0 : 1"
-                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
-                                                        :class="days.fri ?
-                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                    <button type="button" :disabled="dailyLocked"
+                                                        @click="if (!dailyLocked) days.fri = days.fri ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold transition"
+                                                        :class="dailyLocked
+                                                            ?
+                                                            'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' :
+                                                            (days.fri ?
+                                                                'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                                'bg-rose-50 text-rose-700 border-rose-200')">
                                                         Fr
                                                     </button>
+
                                                     {{-- Sat --}}
-                                                    <button type="button" @click="days.sat = days.sat ? 0 : 1"
-                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold"
-                                                        :class="days.sat ?
-                                                            'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                                            'bg-rose-50 text-rose-700 border-rose-200'">
+                                                    <button type="button" :disabled="dailyLocked"
+                                                        @click="if (!dailyLocked) days.sat = days.sat ? 0 : 1"
+                                                        class="w-8 h-8 rounded-full border flex items-center justify-center font-semibold transition"
+                                                        :class="dailyLocked
+                                                            ?
+                                                            'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' :
+                                                            (days.sat ?
+                                                                'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                                'bg-rose-50 text-rose-700 border-rose-200')">
                                                         Sa
                                                     </button>
+
                                                     {{-- Sun fixed off --}}
                                                     <span
                                                         class="w-8 h-8 rounded-full border border-slate-200 bg-slate-100 text-slate-400 flex items-center justify-center font-semibold">
@@ -243,17 +307,21 @@
                                             </td>
                                         </tr>
                                     @endforelse
-
                                 </tbody>
+
                             </table>
                         </div>
 
                         <div class="pt-4 flex justify-end">
-                            <button type="submit"
-                                class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800">
-                                Save daily rate attendance
+                            <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium transition"
+                                :class="dailyLocked
+                                    ?
+                                    'bg-emerald-600 text-white hover:bg-emerald-700' :
+                                    'bg-slate-900 text-white hover:bg-slate-800'">
+                                <span x-text="dailyLocked ? 'Save and lock week' : 'Save daily rate attendance'"></span>
                             </button>
                         </div>
+
                     </div>
                 </form>
             </div>
@@ -264,11 +332,43 @@
                     @csrf
                     <input type="hidden" name="year" value="{{ $year }}">
                     <input type="hidden" name="week" value="{{ $week }}">
+                    <input type="hidden" name="lock_week" x-bind:value="hourlyLocked ? 1 : 0">
 
-                    <div class="p-4">
-                        <div class="mb-3 flex items-center justify-between text-xs text-slate-500">
-                            <span>Enter total hours and overtime hours for this week.</span>
-                            <span>Week {{ $week }} - {{ $year }}</span>
+                    <div class="p-4 space-y-4">
+
+                        {{-- Week lock bar --}}
+                        <div class="flex items-center justify-between text-xs">
+                            <div class="flex items-center gap-3">
+                                <div class="flex items-center gap-2">
+                                    {{-- Modern toggle --}}
+                                    <button type="button" @click="hourlyLocked = !hourlyLocked"
+                                        class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200"
+                                        :class="hourlyLocked ? 'bg-emerald-500' : 'bg-slate-300'">
+                                        <span
+                                            class="inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200"
+                                            :class="hourlyLocked ? 'translate-x-5' : 'translate-x-1'">
+                                        </span>
+                                    </button>
+
+                                    <span class="text-slate-600"
+                                        x-text="hourlyLocked ? 'Week locked' : 'Week editable'"></span>
+                                </div>
+
+                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium"
+                                    :class="hourlyLocked
+                                        ?
+                                        'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                                        'bg-amber-50 text-amber-700 border border-amber-100'">
+                                    <span class="w-1.5 h-1.5 rounded-full"
+                                        :class="hourlyLocked ? 'bg-emerald-500' : 'bg-amber-400'"></span>
+                                    <span
+                                        x-text="hourlyLocked ? 'Hours frozen for this week' : 'You can edit hours for this week'"></span>
+                                </span>
+                            </div>
+
+                            <span class="text-slate-500">
+                                Week {{ $week }} - {{ $year }}
+                            </span>
                         </div>
 
                         <div class="overflow-x-auto">
@@ -287,7 +387,8 @@
                                         @php
                                             $att = $hourlyAttendances[$employee->id] ?? null;
                                         @endphp
-                                        <tr class="hover:bg-slate-50/80">
+                                        <tr class="hover:bg-slate-50/80 transition"
+                                            :class="hourlyLocked ? 'opacity-60' : ''">
                                             <td class="px-4 py-3 font-mono text-xs text-slate-600">
                                                 {{ $employee->employee_code }}
                                             </td>
@@ -300,15 +401,17 @@
                                             <td class="px-4 py-3 text-center">
                                                 <input type="number" step="0.25" min="0"
                                                     name="attendance[{{ $employee->id }}][hours]"
-                                                    value="{{ $att->total_hours ?? '' }}"
+                                                    value="{{ $att->total_hours ?? '' }}" :readonly="hourlyLocked"
                                                     class="w-28 rounded-md border border-slate-200 px-2 py-1.5 text-sm text-center focus:ring-slate-500 focus:border-slate-500"
+                                                    :class="hourlyLocked ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : ''"
                                                     placeholder="0.00">
                                             </td>
                                             <td class="px-4 py-3 text-center">
                                                 <input type="number" step="0.25" min="0"
                                                     name="attendance[{{ $employee->id }}][ot]"
-                                                    value="{{ $att->overtime_hours ?? '' }}"
+                                                    value="{{ $att->overtime_hours ?? '' }}" :readonly="hourlyLocked"
                                                     class="w-28 rounded-md border border-slate-200 px-2 py-1.5 text-sm text-center focus:ring-slate-500 focus:border-slate-500"
+                                                    :class="hourlyLocked ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : ''"
                                                     placeholder="0.00">
                                             </td>
                                         </tr>
@@ -324,11 +427,15 @@
                         </div>
 
                         <div class="pt-4 flex justify-end">
-                            <button type="submit"
-                                class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800">
-                                Save hourly attendance
+                            <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium transition"
+                                :class="hourlyLocked
+                                    ?
+                                    'bg-emerald-600 text-white hover:bg-emerald-700' :
+                                    'bg-slate-900 text-white hover:bg-slate-800'">
+                                <span x-text="hourlyLocked ? 'Save and lock week' : 'Save hourly attendance'"></span>
                             </button>
                         </div>
+
                     </div>
                 </form>
             </div>

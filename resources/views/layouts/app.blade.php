@@ -114,24 +114,56 @@
                 </a>
 
                 {{-- Payroll (static for now) --}}
-                <a href="{{ route('payroll.index') }}"
-                    class="group flex items-center gap-3 px-3 py-2 rounded-lg
-                      hover:bg-slate-800 hover:text-white
-                      transition-colors duration-150 text-slate-200">
-                    {{-- Icon: Money --}}
-                    <svg class="w-5 h-5 flex-shrink-0 opacity-80 group-hover:scale-105 transition-transform duration-150"
-                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                        stroke-width="1.8">
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                            d="M4 7h16a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" />
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                            d="M7 9.5h.01M17 9.5h.01M12 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" />
-                    </svg>
+                {{-- Payroll with submenu --}}
+                <div x-data="{ open: {{ request()->routeIs('payroll.*') ? 'true' : 'false' }} }" class="space-y-1">
+                    <button type="button" @click="open = !open"
+                        class="w-full group flex items-center gap-3 px-3 py-2 rounded-lg
+               hover:bg-slate-800 hover:text-white transition-colors duration-150
+               {{ request()->routeIs('payroll.*') ? 'bg-slate-800 text-white' : 'text-slate-200' }}">
+                        {{-- Icon: Money --}}
+                        <svg class="w-5 h-5 flex-shrink-0 opacity-80 group-hover:scale-105 transition-transform duration-150"
+                            xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                            stroke-width="1.8">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M4 7h16a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M7 9.5h.01M17 9.5h.01M12 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" />
+                        </svg>
 
-                    <span x-show="!sidebarCollapsed" x-transition.opacity>
-                        Payroll
-                    </span>
-                </a>
+                        <span x-show="!sidebarCollapsed" x-transition.opacity class="flex-1 text-left">
+                            Payroll
+                        </span>
+
+                        <span x-show="!sidebarCollapsed" class="ml-auto">
+                            <svg x-show="!open" class="w-4 h-4 opacity-80" xmlns="http://www.w3.org/2000/svg"
+                                fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                            </svg>
+                            <svg x-show="open" class="w-4 h-4 opacity-80" xmlns="http://www.w3.org/2000/svg"
+                                fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </span>
+                    </button>
+
+                    {{-- Submenu --}}
+                    <div x-show="open && !sidebarCollapsed" x-collapse class="ml-8 space-y-1">
+                        <a href="{{ route('payroll.index') }}"
+                            class="block px-3 py-2 rounded-lg text-sm
+                   hover:bg-slate-800 hover:text-white transition-colors duration-150
+                   {{ request()->routeIs('payroll.index') ? 'bg-slate-800 text-white' : 'text-slate-300' }}">
+                            Weekly payroll
+                        </a>
+
+                        <a href="{{ route('payroll.monthly.index') }}"
+                            class="block px-3 py-2 rounded-lg text-sm
+                   hover:bg-slate-800 hover:text-white transition-colors duration-150
+                   {{ request()->routeIs('payroll.monthly.*') ? 'bg-slate-800 text-white' : 'text-slate-300' }}">
+                            Monthly payroll
+                        </a>
+                    </div>
+                </div>
+
 
                 {{-- Reports (static for now) 
                 <a href="#"
@@ -168,8 +200,8 @@
                             fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                         </svg>
-                        <svg x-show="sidebarCollapsed" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none"
-                            viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                        <svg x-show="sidebarCollapsed" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5"
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h12M10 12h8M6 18h12" />
                         </svg>
                     </button>

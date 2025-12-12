@@ -18,6 +18,10 @@ class PayrollItem extends Model
         'gross_amount',
         'cash_amount',
         'bank_amount',
+        'transfer_id',
+        'transfer_date',
+        'transfer_status',
+        'note',
         'is_paid',
     ];
 
@@ -29,5 +33,11 @@ class PayrollItem extends Model
     public function run()
     {
         return $this->belongsTo(PayrollRun::class, 'payroll_run_id');
+    }
+
+    // Alias for consistency with controllers that eager-load payrollRun
+    public function payrollRun()
+    {
+        return $this->run();
     }
 }

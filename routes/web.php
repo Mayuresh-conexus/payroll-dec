@@ -38,6 +38,11 @@ Route::middleware('auth')->group(function () {
     Route::post('/payroll/save-week', [PayrollController::class, 'saveWeek'])->name('payroll.saveWeek');
     Route::get('/payroll/export-week', [PayrollController::class, 'exportWeekCsv'])->name('payroll.exportWeekCsv');
 
+    // Monthly payroll
+    Route::get('/payroll/monthly', [\App\Http\Controllers\MonthlyPayrollController::class, 'index'])->name('payroll.monthly.index');
+    Route::post('/payroll/save-month', [\App\Http\Controllers\MonthlyPayrollController::class, 'saveMonth'])->name('payroll.saveMonth');
+    Route::get('/payroll/export-month', [\App\Http\Controllers\MonthlyPayrollController::class, 'exportMonthXlsx'])->name('payroll.exportMonthXlsx');
+
     // attendance style report under payroll
     Route::get('/payroll/weekly-report', [PayrollController::class, 'weeklyReport'])->name('payroll.weekly.report');
     Route::get('/payroll/weekly-report/csv', [PayrollController::class, 'weeklyReportCsv'])->name('payroll.weekly.report.csv');

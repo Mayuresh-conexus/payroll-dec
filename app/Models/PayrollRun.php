@@ -9,6 +9,8 @@ class PayrollRun extends Model
     protected $fillable = [
         'year',
         'week_number',
+        'period_type',
+        'month',
         'status',
         'created_by',
         'generated_at',

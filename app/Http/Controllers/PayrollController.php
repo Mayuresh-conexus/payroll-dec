@@ -79,13 +79,23 @@ class PayrollController extends Controller
                     $cash = $gross;
                 }
 
+                // when payroll run is trusted for this type, map overtime field appropriately
+                if ($isDaily) {
+                    $overtimeField = 'overtime_amount';
+                } else {
+                    $overtimeField = 'overtime_hours';
+                }
+
                 $rowsByKey[$key] = [
                     'employee'        => $employee,
                     'type'            => $item->type,
                     'total_days'      => $item->total_days,
                     'present_days'    => $item->present_days,
                     'total_hours'     => $item->total_hours,
-                    'overtime_hours'  => $item->overtime_hours,
+                    // map payroll item's overtime to the appropriate row key
+                    $overtimeField   => $item->overtime_hours,
+                    // preserve sunday hours from attendance row when available
+                    'sun_hours'       => $rowsByKey[$key]['sun_hours'] ?? 0,
                     'gross_amount'    => $gross,
                     'cash_amount'     => $cash,
                     'bank_amount'     => $gross - $cash,
@@ -120,13 +130,21 @@ class PayrollController extends Controller
                         $cash = $gross;
                     }
 
+                    // ensure missing attendance row maps overtime into the reasonable key
+                    if ($item->type === 'daily_rate') {
+                        $overtimeKey = 'overtime_amount';
+                    } else {
+                        $overtimeKey = 'overtime_hours';
+                    }
+
                     $rowsByKey[$key] = [
                         'employee'        => $employee,
                         'type'            => $item->type,
                         'total_days'      => $item->total_days,
                         'present_days'    => $item->present_days,
                         'total_hours'     => $item->total_hours,
-                        'overtime_hours'  => $item->overtime_hours,
+                        $overtimeKey     => $item->overtime_hours,
+                        'sun_hours'       => 0,
                         'gross_amount'    => $gross,
                         'cash_amount'     => $cash,
                         'bank_amount'     => $gross - $cash,
@@ -195,17 +213,23 @@ class PayrollController extends Controller
 
             $totalDays   = $att->total_working_days ?? 6;
             $presentDays = $att->present_days ?? 0;
-            $dailyRate   = $employee->daily_rate ?? 0;
+            $dailyRate     = $employee->daily_rate ?? 0;
+            $overtimeAmount = $att->overtime_amount ?? 0;
 
-            $gross = $presentDays * $dailyRate;
+            // include overtime amount in gross for daily-rate employees
+            $gross = ($presentDays * $dailyRate) + $overtimeAmount;
 
             $rows->push([
                 'employee'        => $employee,
                 'type'            => 'daily_rate',
                 'total_days'      => $totalDays,
                 'present_days'    => $presentDays,
+                // whether sunday was marked/present in this attendance week
+                'sun_present'     => (!empty($att->days_map) && isset($att->days_map['sun']) && (int)$att->days_map['sun'] === 1),
                 'total_hours'     => null,
-                'overtime_hours'  => null,
+                'sun_hours'       => null,
+                // daily attendance stores overtime as an amount
+                'overtime_amount' => $overtimeAmount,
                 'gross_amount'    => $gross,
                 'cash_amount'     => 0,
                 'bank_amount'     => $gross,
@@ -223,7 +247,7 @@ class PayrollController extends Controller
             $rate  = $employee->hourly_rate ?? 0;
 
             $normalPay = $hours * $rate;
-            $otPay     = $ot * $rate * 1.5;  // adjust factor if you want
+            $otPay     = $ot * $rate * 1;  // adjust factor if you want
             $gross     = $normalPay + $otPay;
 
             $rows->push([
@@ -231,6 +255,10 @@ class PayrollController extends Controller
                 'type'            => 'hourly',
                 'total_days'      => null,
                 'present_days'    => null,
+                // whether sunday had hours recorded
+                'sun_present'     => (!empty($att->hours_map) && isset($att->hours_map['sun']) && (float)$att->hours_map['sun'] > 0),
+                // actual hours recorded for Sunday (0 when none)
+                'sun_hours'       => (!empty($att->hours_map) && isset($att->hours_map['sun']) ? (float)$att->hours_map['sun'] : 0),
                 'total_hours'     => $hours,
                 'overtime_hours'  => $ot,
                 'gross_amount'    => $gross,
@@ -273,21 +301,33 @@ class PayrollController extends Controller
             $cash  = $row['cash'] ?? 0;
             $bank  = $row['bank'] ?? ($gross - $cash);
 
+            // Save payroll item: map overtime into the correct column depending on employee type
+            $payload = [
+                'type'         => $row['type'],
+                'total_days'   => $row['total_days'] ?? null,
+                'present_days' => $row['present_days'] ?? null,
+                'total_hours'  => $row['total_hours'] ?? null,
+                'gross_amount' => $gross,
+                'cash_amount'  => $cash,
+                'bank_amount'  => $bank,
+            ];
+
+            if (($row['type'] ?? '') === 'daily_rate') {
+                // daily rows: overtime is an amount
+                $payload['overtime_amount'] = $row['overtime'] ?? 0;
+                $payload['overtime_hours'] = null;
+            } else {
+                // hourly rows: overtime is hours
+                $payload['overtime_hours'] = $row['overtime'] ?? 0;
+                $payload['overtime_amount'] = null;
+            }
+
             PayrollItem::updateOrCreate(
                 [
                     'payroll_run_id' => $run->id,
                     'employee_id'    => $row['employee_id'],
                 ],
-                [
-                    'type'           => $row['type'],
-                    'total_days'     => $row['total_days'] ?? null,
-                    'present_days'   => $row['present_days'] ?? null,
-                    'total_hours'    => $row['total_hours'] ?? null,
-                    'overtime_hours' => $row['overtime'] ?? null,
-                    'gross_amount'   => $gross,
-                    'cash_amount'    => $cash,
-                    'bank_amount'    => $bank,
-                ]
+                $payload
             );
         }
 
@@ -311,6 +351,11 @@ class PayrollController extends Controller
         ->firstOrFail();
 
     $dailyAttendance = DailyRateAttendance::where('year', $year)
+        ->where('week_number', $week)
+        ->get()
+        ->keyBy('employee_id');
+
+    $hourlyAttendance = HourlyAttendance::where('year', $year)
         ->where('week_number', $week)
         ->get()
         ->keyBy('employee_id');
@@ -492,7 +537,27 @@ $sheet->getStyle('A3:P4')->getAlignment()
             $cell = "{$col}{$rowIndex}";
 
             if ($item->type !== 'daily_rate') {
-                $sheet->setCellValue($cell, '-');
+                // hourly: show hours + ot per day if available
+                $hAtt = $hourlyAttendance[$item->employee_id] ?? null;
+                $hours = null;
+                $otDay = null;
+                if ($hAtt && is_array($hAtt->hours_map)) {
+                    $hours = isset($hAtt->hours_map[$key]) ? $hAtt->hours_map[$key] : null;
+                }
+                if ($hAtt && is_array($hAtt->ot_map)) {
+                    $otDay = isset($hAtt->ot_map[$key]) ? $hAtt->ot_map[$key] : null;
+                }
+
+                if (($hours === null || $hours === 0) && ($otDay === null || $otDay == 0)) {
+                    $sheet->setCellValue($cell, '-');
+                } else {
+                    $display = (float)($hours ?? 0);
+                    if ($otDay && (float)$otDay > 0) {
+                        $display = $display - $otDay . ' + ' . ((float)$otDay);
+                    }
+                    $sheet->setCellValue($cell, $display);
+                }
+
                 $sheet->getStyle($cell)->getAlignment()
                           ->setHorizontal('center')
                           ->setVertical('center');
@@ -509,15 +574,22 @@ $sheet->getStyle('A3:P4')->getAlignment()
                           ->setHorizontal('center')
                           ->setVertical('center');
                 } else {
-                    $value = $val ? 'IN' : 'OFF';
+                    $isIn = (bool)$val;
+                    $display = $isIn ? 'IN' : 'OFF';
+
+                    // if IN and there is a daily overtime amount for this day, append it
+                    if ($isIn && $att && is_array($att->overtime_map) && isset($att->overtime_map[$key]) && (float)$att->overtime_map[$key] > 0) {
+                        $display = $display . ' + ' . number_format((float)$att->overtime_map[$key], 2);
+                    }
+
                     $sheet->getStyle($cell)->getFont()
                           ->setBold(true);
                     $sheet->getStyle($cell)->getAlignment()
                           ->setHorizontal('center')
                           ->setVertical('center');
-                    $sheet->setCellValue($cell, $value);
+                    $sheet->setCellValue($cell, $display);
 
-                    if ($value === 'OFF') {
+                    if (! $isIn) {
                         $sheet->getStyle($cell)->getFont()
                             ->setBold(true)
                             ->getColor()->setARGB('DC2626'); // red
@@ -535,8 +607,28 @@ $sheet->getStyle('A3:P4')->getAlignment()
         $val = fn($v) => ($v === null || $v === '') ? '-' : $v;
 
 $sheet->setCellValue("K{$rowIndex}", $val($item->present_days));
-$sheet->setCellValue("L{$rowIndex}", $val($item->total_hours));
-$sheet->setCellValue("M{$rowIndex}", $val($item->overtime_hours));
+
+// Total hours column (L): for hourly show "normal [+ OT]" string, for daily keep dash
+if ($item->type === 'hourly') {
+    $normal = $item->total_hours ?? 0;
+    $ot = $item->overtime_hours ?? 0;
+    if ($ot && $ot > 0) {
+        $hoursLabel = $normal . " + " . $ot . " hr";
+    } else {
+        $hoursLabel = $normal . " hrs";
+    }
+    $sheet->setCellValue("L{$rowIndex}", $val($hoursLabel));
+} else {
+    $sheet->setCellValue("L{$rowIndex}", $val('-'));
+}
+
+// Overtime column (M): daily uses overtime_amount (currency/amount), hourly uses overtime_hours
+if ($item->type === 'daily_rate') {
+    $sheet->setCellValue("M{$rowIndex}", $val(number_format((float)($item->overtime_amount ?? 0), 2)));
+} else {
+    $sheet->setCellValue("M{$rowIndex}", $val($item->overtime_hours));
+}
+
 $sheet->setCellValue("N{$rowIndex}", $val($item->gross_amount));
 $sheet->setCellValue("O{$rowIndex}", $val($item->cash_amount));
 $sheet->setCellValue("P{$rowIndex}", $val($item->bank_amount));

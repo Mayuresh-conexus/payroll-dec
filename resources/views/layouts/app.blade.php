@@ -133,12 +133,12 @@
                     </span>
                 </a>
 
-                {{-- Reports (static for now) --}}
+                {{-- Reports (static for now) 
                 <a href="#"
                     class="group flex items-center gap-3 px-3 py-2 rounded-lg
                       hover:bg-slate-800 hover:text-white
                       transition-colors duration-150 text-slate-200">
-                    {{-- Icon: Chart --}}
+                     Icon: Chart 
                     <svg class="w-5 h-5 flex-shrink-0 opacity-80 group-hover:scale-105 transition-transform duration-150"
                         xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
                         stroke-width="1.8">
@@ -148,7 +148,7 @@
                     <span x-show="!sidebarCollapsed" x-transition.opacity>
                         Reports
                     </span>
-                </a>
+                </a> --}}
             </nav>
         </aside>
 

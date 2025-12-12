@@ -23,6 +23,7 @@ class EmployeeController extends Controller
             'type'          => 'required|in:daily_rate,hourly',
             'daily_rate'    => 'nullable|numeric',
             'hourly_rate'   => 'nullable|numeric',
+            'hours_per_day' => 'nullable|numeric',
         ]);
 
         Employee::create($data);
@@ -42,6 +43,7 @@ class EmployeeController extends Controller
         'type'          => 'required|in:daily_rate,hourly',
         'daily_rate'    => 'nullable|numeric',
         'hourly_rate'   => 'nullable|numeric',
+        'hours_per_day' => 'nullable|numeric',
         'is_active'     => 'nullable|boolean',
     ]);
 

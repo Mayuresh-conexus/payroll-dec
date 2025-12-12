@@ -14,6 +14,7 @@ class PayrollItem extends Model
         'total_days',
         'total_hours',
         'overtime_hours',
+        'overtime_amount',
         'gross_amount',
         'cash_amount',
         'bank_amount',

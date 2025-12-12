@@ -20,11 +20,13 @@ class Employee extends Model
         'type',
         'daily_rate',
         'hourly_rate',
+        'hours_per_day',
         'is_active',
     ];
 
     protected $casts = [
         'joining_date' => 'date',
         'is_active' => 'boolean',
+        'hours_per_day' => 'float',
     ];
 }

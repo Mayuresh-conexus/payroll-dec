@@ -16,6 +16,7 @@ return new class extends Migration
             $table->enum('type', ['daily_rate', 'hourly'])->default('daily_rate');
             $table->decimal('daily_rate', 10, 2)->nullable()->comment('For CTC employees');
             $table->decimal('hourly_rate', 10, 2)->nullable()->comment('For hourly employees');
+            $table->decimal('hours_per_day', 5, 2)->nullable();
             $table->boolean('is_active')->default(true);
             $table->softDeletes();
             $table->timestamps();

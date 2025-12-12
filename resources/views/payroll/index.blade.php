@@ -96,16 +96,45 @@
                                         </span>
                                     @endif
                                 </td>
+
+                                {{-- Attendance  --}}
                                 <td class="px-4 py-3 text-center text-xs text-slate-600">
                                     @if ($row['type'] === 'daily_rate')
-                                        {{ $row['present_days'] }}/{{ $row['total_days'] }} days
+                                        @if (!empty($row['sun_present']))
+                                            {{ $row['present_days'] - 1 }}/{{ $row['total_days'] }} days &nbsp;+ <span
+                                                class="inline-flex items-center ml-1 px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 text-xs font-semibold">
+                                                Sun</span>
+                                        @else
+                                            {{ $row['present_days'] }}/{{ $row['total_days'] }} days
+                                        @endif
+                                        @if (!empty($row['overtime_amount']))
+                                            &nbsp; + <span
+                                                class="inline-flex items-center ml-2 px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-xs font-semibold">
+                                                {{ number_format($row['overtime_amount'], 2) }} OT</span>
+                                        @endif
                                     @else
-                                        {{ $row['total_hours'] }} hrs
-                                        @if ($row['overtime_hours'])
-                                            + {{ $row['overtime_hours'] }} OT
+                                        @if (!empty($row['sun_present']))
+                                            {{ $row['total_hours'] - $row['sun_hours'] }} hrs
+                                            @if ($row['overtime_hours'])
+                                                &nbsp;+ <span
+                                                    class="inline-flex items-center ml-1 px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-xs font-semibold">
+                                                    {{ $row['overtime_hours'] }} hrs OT
+                                                </span>
+                                            @endif
+                                            +
+                                            <span
+                                                class="inline-flex items-center ml-1 px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 text-xs font-semibold">
+                                                {{ min(6, $row['sun_hours'] ?? 0) }} hrs
+                                                Sun</span>
+                                        @else
+                                            {{ $row['total_hours'] }} hrs
+                                            @if ($row['overtime_hours'])
+                                                + {{ $row['overtime_hours'] }} OT
+                                            @endif
                                         @endif
                                     @endif
                                 </td>
+                                {{-- Gross salary --}}
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">
                                     {{ number_format($row['gross_amount'], 2) }}
                                 </td>
@@ -135,7 +164,7 @@
                                 <input type="hidden" name="items[{{ $index }}][total_hours]"
                                     value="{{ $row['total_hours'] }}">
                                 <input type="hidden" name="items[{{ $index }}][overtime]"
-                                    value="{{ $row['overtime_hours'] }}">
+                                    value="{{ $row['type'] === 'daily_rate' ? $row['overtime_amount'] ?? 0 : $row['overtime_hours'] ?? 0 }}">
                                 <input type="hidden" name="items[{{ $index }}][gross]"
                                     :value="items[{{ $index }}].gross">
                                 <input type="hidden" name="items[{{ $index }}][cash]"

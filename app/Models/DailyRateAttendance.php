@@ -14,11 +14,15 @@ class DailyRateAttendance extends Model
         'present_days',
         'locked',
         'days_map',
+        'overtime_map',
+        'overtime_amount',
     ];
 
     protected $casts = [
         'days_map' => 'array',
+        'overtime_map' => 'array',
         'locked'   => 'boolean',
+        'overtime_amount' => 'float',
     ];
 
     public function employee()

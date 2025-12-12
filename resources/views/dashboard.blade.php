@@ -72,10 +72,15 @@
                         <div
                             class="shrink-0 w-10 h-10 rounded-xl bg-slate-900 text-slate-50 flex items-center justify-center">
                             {{-- people icon --}}
-                            <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                                stroke="currentColor" stroke-width="1.8">
+                            <svg class="w-5 h-5 flex-shrink-0 opacity-80 group-hover:scale-105 transition-transform duration-150"
+                                fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg">
                                 <path stroke-linecap="round" stroke-linejoin="round"
-                                    d="M16 16a4 4 0 0 0-8 0m-3 4a6 6 0 0 1 12 0M9 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm12 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm-3 11a6 6 0 0 0-5-5.917" />
+                                    d="M17 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
+                                <circle cx="9" cy="7" r="4" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M23 20v-2a4 4 0 0 0-3-3.87" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M16 3.13a4 4 0 0 1 0 7.75" />
                             </svg>
                         </div>
                     </div>
@@ -234,10 +239,13 @@
                         <div
                             class="shrink-0 w-10 h-10 rounded-xl bg-slate-900 text-slate-50 flex items-center justify-center">
                             {{-- money icon --}}
-                            <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                            <svg class="w-5 h-5 flex-shrink-0 opacity-80 group-hover:scale-105 transition-transform duration-150"
+                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
                                 stroke="currentColor" stroke-width="1.8">
                                 <path stroke-linecap="round" stroke-linejoin="round"
-                                    d="M12 8c-2.5 0-3.5 3.5-1 4.5l2 .7c2.5 1 1.5 4.5-1 4.5-1.4 0-2.5-.8-3-2M12 6v2m0 10v-2M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
+                                    d="M4 7h16a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" />
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M7 9.5h.01M17 9.5h.01M12 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" />
                             </svg>
                         </div>
                     </div>

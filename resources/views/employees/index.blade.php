@@ -64,6 +64,9 @@
                                     {{ number_format($employee->daily_rate, 2) }} / day
                                 @else
                                     {{ number_format($employee->hourly_rate, 2) }} / hour
+                                    @if ($employee->hours_per_day)
+                                        · {{ rtrim(rtrim(number_format($employee->hours_per_day, 2), '0'), '.') }} hrs/day
+                                    @endif
                                 @endif
                             </td>
                             <td class="px-4 py-3 text-sm text-slate-600">
@@ -87,10 +90,7 @@
                                 <div class="flex justify-end items-center gap-2 text-slate-500">
                                     {{-- Edit --}}
                                     <button type="button"
-                                        @click="
-                                            openEdit = true;
-                                            editingEmployee = {{ $employee->toJson() }};
-                                        "
+                                        @click='openEdit = true; editingEmployee = @json($employee); if (editingEmployee && editingEmployee.joining_date) { editingEmployee.joining_date = editingEmployee.joining_date.split("T")[0]; }'
                                         data-tooltip="Edit"
                                         class="p-1.5 rounded-md hover:bg-blue-50 hover:text-blue-600 transition">
                                         <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none"
@@ -219,7 +219,7 @@
                                 </label>
                                 <select name="type" x-model="empType"
                                     class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none bg-white">
-                                    <option value="daily_rate">Daily rate (CTC)</option>
+                                    <option value="daily_rate">Daily rate</option>
                                     <option value="hourly">Hourly</option>
                                 </select>
                             </div>
@@ -235,7 +235,7 @@
                                     <input type="number" step="0.01" name="daily_rate"
                                         x-bind:disabled="empType !== 'daily_rate'"
                                         class="w-full rounded-lg border border-slate-200 pl-7 pr-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
-                                        placeholder="For CTC staff">
+                                        placeholder="For staff">
                                 </div>
                                 <p class="mt-1 text-[11px] text-slate-400" x-show="empType !== 'daily_rate'">
                                     Enabled only when type is Daily rate.
@@ -259,6 +259,18 @@
                                     Enabled only when type is Hourly.
                                 </p>
                             </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Hours per day
+                                </label>
+                                <input type="number" name="hours_per_day" step="0.25" min="0"
+                                    x-bind:disabled="empType !== 'hourly'"
+                                    class="w-full border rounded px-3 py-2 text-sm" x-show="empType === 'hourly'">
+                                <p class="mt-1 text-[11px] text-slate-400" x-show="empType !== 'hourly'">
+                                    Only used for hourly employees.
+                                </p>
+                            </div>
                         </div>
                     </div>
 
@@ -280,7 +292,7 @@
         </div>
 
         {{-- Edit employee modal --}}
-        <div x-show="openEdit && editingEmployee" x-cloak
+        <div style="margin-top: 0" x-show="openEdit && editingEmployee" x-cloak
             class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
             <div @click.away="openEdit = false"
                 class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 sm:p-7 space-y-6" x-data>
@@ -367,7 +379,7 @@
                                 </label>
                                 <select name="type" x-model="editingEmployee.type"
                                     class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none bg-white">
-                                    <option value="daily_rate">Daily rate (CTC)</option>
+                                    <option value="daily_rate">Daily rate</option>
                                     <option value="hourly">Hourly</option>
                                 </select>
                             </div>
@@ -407,6 +419,20 @@
                                 <p class="mt-1 text-[11px] text-slate-400"
                                     x-show="editingEmployee && editingEmployee.type !== 'hourly'">
                                     Enabled only when type is Hourly.
+                                </p>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Hours per day
+                                </label>
+                                <input type="number" name="hours_per_day" step="0.25" min="0"
+                                    x-bind:value="editingEmployee ? editingEmployee.hours_per_day : ''"
+                                    x-bind:disabled="!(editingEmployee && editingEmployee.type === 'hourly')"
+                                    class="w-full border rounded px-3 py-2 text-sm">
+                                <p class="mt-1 text-[11px] text-slate-400"
+                                    x-show="!(editingEmployee && editingEmployee.type === 'hourly')">
+                                    Only used for hourly employees.
                                 </p>
                             </div>
                         </div>

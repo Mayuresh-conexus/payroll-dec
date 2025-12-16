@@ -541,6 +541,7 @@ $sheet->getStyle('A3:P4')->getAlignment()
                 $hAtt = $hourlyAttendance[$item->employee_id] ?? null;
                 $hours = null;
                 $otDay = null;
+                
                 if ($hAtt && is_array($hAtt->hours_map)) {
                     $hours = isset($hAtt->hours_map[$key]) ? $hAtt->hours_map[$key] : null;
                 }
@@ -548,21 +549,34 @@ $sheet->getStyle('A3:P4')->getAlignment()
                     $otDay = isset($hAtt->ot_map[$key]) ? $hAtt->ot_map[$key] : null;
                 }
 
-                if (($hours === null || $hours === 0) && ($otDay === null || $otDay == 0)) {
+                if (($hours === null || $hours === 0) && ($otDay === null || $otDay == 0) && $key !== 'sun') {
                     $sheet->setCellValue($cell, '-');
                 } else {
                     $display = (float)($hours ?? 0);
                     if ($otDay && (float)$otDay > 0) {
                         $display = $display - $otDay . ' + ' . ((float)$otDay);
                     }
-                    $sheet->setCellValue($cell, $display);
+                    if($key === 'sun' && $display <= 0) {
+                        $sheet->setCellValue($cell, 'CLOSED');
+                    $sheet->getStyle($cell)->getFill()
+                        ->setFillType(Fill::FILL_SOLID)
+                        ->getStartColor()->setARGB('0c4d90'); // dark sky blue
+                    $sheet->getStyle($cell)->getFont()
+                          ->setBold(true)
+                          ->getColor()->setARGB(Color::COLOR_WHITE);
+                    $sheet->getStyle($cell)->getAlignment()
+                          ->setHorizontal('center')
+                          ->setVertical('center');
+                    } else {
+                        $sheet->setCellValue($cell, $display);
+                    }
                 }
 
                 $sheet->getStyle($cell)->getAlignment()
                           ->setHorizontal('center')
                           ->setVertical('center');
             } else {
-                if ($key === 'sun') {
+                if ($key === 'sun' && $val === 0 ) {
                     $sheet->setCellValue($cell, 'CLOSED');
                     $sheet->getStyle($cell)->getFill()
                         ->setFillType(Fill::FILL_SOLID)

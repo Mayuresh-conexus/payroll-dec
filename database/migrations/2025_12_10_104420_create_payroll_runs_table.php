@@ -9,14 +9,23 @@ return new class extends Migration {
     {
         Schema::create('payroll_runs', function (Blueprint $table) {
             $table->id();
+
+            $table->enum('period_type', ['weekly', 'monthly'])->default('weekly');
+
             $table->integer('year');
-            $table->integer('week_number');
+            $table->integer('week_number')->default(0); // weekly uses 1..53, monthly can stay 0
+            $table->string('month', 7)->nullable()->comment('YYYY-MM for monthly runs');
+
             $table->enum('status', ['draft', 'final'])->default('draft');
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('generated_at')->nullable();
             $table->timestamps();
 
-            $table->unique(['year', 'week_number']);
+            // weekly uniqueness
+            $table->unique(['period_type', 'year', 'week_number'], 'payroll_runs_weekly_unique');
+
+            // monthly uniqueness
+            $table->unique(['period_type', 'month'], 'payroll_runs_monthly_unique');
         });
     }
 

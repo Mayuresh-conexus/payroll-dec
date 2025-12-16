@@ -29,6 +29,10 @@
             border-radius: 4px;
             white-space: nowrap;
         }
+
+        [x-cloak] {
+            display: none !important;
+        }
     </style>
 
 

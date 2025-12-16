@@ -165,35 +165,77 @@
                                                 hoursName: 'attendance[{{ $employee->id }}][hours_map][{{ $d }}]',
                                                 hoursVal: @if ($employee->type === 'hourly') @json(old(
                                                         "attendance.{$employee->id}.hours_map.{$d}",
-                                                        isset($hHours[$d]) ? $hHours[$d] : ($d === 'sun' ? 0 : $defaultHours))) @else 0 @endif
+                                                        isset($hHours[$d]) ? $hHours[$d] : ($d === 'sun' ? 0 : $defaultHours)))
+        @else
+            0 @endif
                                             }" class="flex flex-col items-center gap-1">
-                                                <!-- Tiny Present/Absent toggle -->
+                                                <!-- Present / Absent -->
                                                 <button type="button"
                                                     @click="present = !present; if (present) { hoursVal = hoursVal > 0 ? hoursVal : {{ $defaultHours }} } else { hoursVal = 0 }"
                                                     :class="present ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'"
-                                                    class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold shadow-sm transition-colors duration-150"
-                                                    :aria-pressed="present ? 'true' : 'false'"
-                                                    :title="present ? 'Mark absent' : 'Mark present'">
+                                                    class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold shadow-sm transition-colors duration-150">
                                                     <span x-text="present ? 'P' : 'A'"></span>
                                                 </button>
 
-                                                <!-- Hidden input submits 1 or 0 -->
+                                                <!-- Hidden input -->
                                                 <input type="hidden" :name="inputName" :value="present ? 1 : 0">
 
-                                                <!-- For hourly employees show hours input bound to Alpine; for daily-rate keep OT input -->
-                                                @if ($employee->type === 'hourly')
-                                                    <input type="number" step="0.25" min="0"
-                                                        :name="hoursName" x-model.number="hoursVal"
-                                                        class="mt-1 w-14 text-[11px] px-1 py-0.5 border rounded"
-                                                        title="Hours" :disabled="!present">
-                                                @else
-                                                    <input type="number" step="0.25" min="0"
-                                                        name="attendance[{{ $employee->id }}][overtime_map][{{ $d }}]"
-                                                        value="{{ $oVal }}"
-                                                        class="mt-1 w-12 text-[10px] px-1 py-0.5 border rounded"
-                                                        placeholder="OT" title="Overtime hours">
-                                                @endif
+                                                <!-- Input + (optional) info icon only once per employee (example: on sun column) -->
+                                                <div class="mt-1 flex items-center gap-1 overflow-visible">
+                                                    @if ($employee->type === 'hourly')
+                                                        <input type="number" step="0.25" min="0"
+                                                            :name="hoursName" x-model.number="hoursVal"
+                                                            class="w-12 text-[11px] px-1 py-0.5 border rounded"
+                                                            :disabled="!present">
+                                                    @else
+                                                        <input type="number" step="0.25" min="0"
+                                                            name="attendance[{{ $employee->id }}][overtime_map][{{ $d }}]"
+                                                            value="{{ $oVal }}"
+                                                            class="w-12 text-[10px] px-1 py-0.5 border rounded"
+                                                            placeholder="OT">
+                                                    @endif
+
+                                                    @if ($d === 'sun')
+                                                        <span
+                                                            class="inline-flex items-center gap-1 text-[10px] text-slate-500">
+                                                            @if ($employee->type === 'hourly')
+                                                                <span class="font-medium">Hrs</span>
+                                                            @else
+                                                                <span class="font-medium">(€)</span>
+                                                            @endif
+
+                                                            <span class="relative inline-flex items-center group">
+                                                                <!-- Clean info icon -->
+                                                                <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 cursor-help"
+                                                                    xmlns="http://www.w3.org/2000/svg" fill="none"
+                                                                    viewBox="0 0 24 24" stroke="currentColor"
+                                                                    stroke-width="1.6">
+                                                                    <circle cx="12" cy="12" r="9" />
+                                                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                                                        d="M12 8.25v.5M12 11.25v4.5" />
+                                                                </svg>
+
+                                                                <!-- Tooltip -->
+                                                                <span
+                                                                    class="pointer-events-none absolute right-full top-1/2 -translate-y-1/2 mr-2
+                   hidden group-hover:block z-50
+                   max-w-[220px] whitespace-normal break-words
+                   rounded-md bg-slate-900 px-2 py-1 w-max text-[10px] leading-snug text-white shadow-lg
+                   opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-out">
+                                                                    @if ($employee->type === 'hourly')
+                                                                        Enter total worked hours. Add extra hours beyond
+                                                                        normal shift for overtime.
+                                                                    @else
+                                                                        Enter overtime amount directly in €.
+                                                                    @endif
+                                                                </span>
+                                                            </span>
+                                                        </span>
+                                                    @endif
+                                                </div>
                                             </div>
+
+
                                         </td>
                                     @endforeach
 

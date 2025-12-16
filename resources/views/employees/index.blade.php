@@ -136,7 +136,7 @@
         </div>
 
         {{-- Create employee modal --}}
-        <div x-show="openCreate" x-cloak style="margin-top: 0"
+        <div x-show="openCreate" x-cloak x-transition.scale style="margin-top: 0"
             class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
             <div @click.away="openCreate = false"
                 class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 sm:p-7 space-y-6" x-data="{ empType: 'daily_rate' }">

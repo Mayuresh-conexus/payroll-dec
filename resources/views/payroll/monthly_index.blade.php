@@ -12,11 +12,37 @@
                 <label class="block text-xs font-semibold text-slate-600 mb-1">Month</label>
                 <input type="month" name="month" value="{{ $month }}"
                     class="rounded-lg border-slate-200 text-sm focus:ring-slate-500 focus:border-slate-500">
+                <button type="submit"
+                    class="px-4 py-2 ml-2 rounded-lg bg-slate-900 text-white text-sm font-medium">Load</button>
             </div>
 
-            <div class="ml-auto">
-                <button type="submit"
-                    class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium">Load</button>
+            <div class="ml-auto flex items-center">
+
+                @php
+                    $weekSet = [];
+
+                    foreach ($rows as $row) {
+                        preg_match_all('/\d+/', $row['weeks_display'] ?? '', $m);
+                        foreach ($m[0] as $w) {
+                            $weekSet[(int) $w] = true;
+                        }
+                    }
+
+                    $weeks = array_keys($weekSet);
+                    sort($weeks);
+
+                    $uniqueWeeksDisplay = collect($weeks)->map(fn($w) => 'wk' . $w)->implode(' ');
+                @endphp
+
+
+                <div class="flex flex-wrap gap-2 items-center">
+                    @foreach ($weeks as $w)
+                        <span class="px-3 py-1 font-medium rounded-full text-xs bg-slate-900 text-white">
+                            Week{{ $w }}
+                        </span>
+                    @endforeach
+                </div>
+
                 <a href="{{ route('payroll.exportMonthXlsx', ['month' => $month]) }}"
                     class="ml-2 px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50">Export
                     XLSX</a>
@@ -35,7 +61,6 @@
                             <th class="px-4 py-3 text-left">Code</th>
                             <th class="px-4 py-3 text-left">Name</th>
                             <th class="px-4 py-3 text-center">Type</th>
-                            <th class="px-4 py-3 text-center">Weeks</th>
                             <th class="px-4 py-3 text-right">Gross</th>
                             <th class="px-4 py-3 text-right">Cash</th>
                             <th class="px-4 py-3 text-right">Bank</th>
@@ -62,7 +87,6 @@
                                     @endif
                                 </td>
 
-                                <td class="px-4 py-3 text-center text-xs">{{ $row['weeks_display'] ?? '' }}</td>
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">
                                     {{ number_format($row['gross_amount'], 2) }}</td>
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">
@@ -122,12 +146,12 @@
                     @if ($rows->count())
                         <tfoot class="bg-slate-50 text-sm">
                             <tr>
-                                <td colspan="4" class="px-4 py-3 text-right font-semibold text-slate-700">Totals</td>
-                                <td class="px-4 py-3 text-right font-semibold text-slate-800">
+                                <td colspan="3" class="px-4 py-3 text-right font-semibold text-slate-700">Totals</td>
+                                <td class="px-4 py-3 text-right font-semibold text-green-800">
                                     {{ number_format($totals['gross'], 2) }}</td>
-                                <td class="px-4 py-3 text-right font-semibold text-slate-800">
+                                <td class="px-4 py-3 text-right font-semibold text-green-800">
                                     {{ number_format($totals['cash'], 2) }}</td>
-                                <td class="px-4 py-3 text-right font-semibold text-slate-800">
+                                <td class="px-4 py-3 text-right font-semibold text-green-800">
                                     {{ number_format($totals['bank'], 2) }}</td>
                                 <td colspan="4"></td>
                             </tr>

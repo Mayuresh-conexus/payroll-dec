@@ -14,7 +14,7 @@ return new class extends Migration
         if (Schema::hasTable('payroll_items')) {
             Schema::table('payroll_items', function (Blueprint $table) {
                 if (! Schema::hasColumn('payroll_items', 'overtime_amount')) {
-                    $table->decimal('overtime_amount', 8, 2)->default(0)->after('overtime_hours')->comment('overtime amount for daily-rate rows');
+                    $table->decimal('overtime_amount', 8, 2)->nullable()->after('overtime_hours')->comment('overtime amount for daily-rate rows');
                 }
             });
         }

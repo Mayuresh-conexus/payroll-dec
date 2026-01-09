@@ -86,20 +86,63 @@
 
                 <div class="overflow-x-auto">
                     <table class="min-w-full text-sm">
-                        <thead class="bg-slate-50 text-slate-500 uppercase text-xs font-semibold">
-                            <tr>
-                                <th class="px-3 py-3 text-left">Code</th>
-                                <th class="px-3 py-3 text-left">Name</th>
-                                <th class="px-3 py-3 text-left">Dept</th>
-                                <th class="px-3 py-3 text-left">Type</th>
+                        @php
+                            use Carbon\Carbon;
 
-                                {{-- Day headers (Mon..Sun) --}}
+                            $today = Carbon::now();
+
+                            $tyear = $today->format('Y'); // 2026
+                            $tmonth = $today->format('m'); // 01 to 12
+                            $tdate = $today->format('d'); // 01 to 31
+                        @endphp
+
+
+
+                        <thead class="bg-white sticky top-0 z-10">
+                            {{-- Row 1: Titles + Dates --}}
+                            <tr
+                                class="text-[11px] font-semibold uppercase tracking-wide text-slate-600 border-b border-slate-200">
+                                <th class="px-3 py-3 text-left bg-white">Code</th>
+                                <th class="px-3 py-3 text-left bg-white">Name</th>
+                                <th class="px-3 py-3 text-left bg-white">Dept</th>
+                                <th class="px-3 py-3 text-left bg-white">Type</th>
+
                                 @foreach (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as $d)
-                                    <th class="w-10 px-1 py-2 text-center text-[10px]">{{ strtoupper(substr($d, 0, 3)) }}
+                                    @php $isToday = isset($todayKey) && $todayKey === $d; @endphp
+
+                                    <th class="w-12 px-2 py-2 text-center bg-white border-l border-slate-100">
+                                        <div
+                                            class="mx-auto w-10 rounded-lg px-1.5 py-1
+    {{ $isToday ? 'bg-[#2563EB] text-white shadow-sm' : 'bg-[#F6F7F9] text-slate-700' }}">
+                                            <div class="text-[12px] leading-none font-semibold">
+                                                {{ $dayDates[$d] ?? '' }}
+                                            </div>
+                                        </div>
                                     </th>
                                 @endforeach
-                                <th class="w-12 px-1 py-2 text-center text-[10px]">P</th>
-                                <th class="w-12 px-1 py-2 text-center text-[10px]">A</th>
+
+                                <th class="w-12 px-2 py-3 text-center bg-white border-l border-slate-100">P</th>
+                                <th class="w-12 px-2 py-3 text-center bg-white border-l border-slate-100">A</th>
+                            </tr>
+
+                            {{-- Row 2: Day labels --}}
+                            <tr
+                                class="text-[10px] font-medium uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                                <th colspan="4" class="bg-white"></th>
+
+                                @foreach (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as $d)
+                                    @php $isToday = isset($todayKey) && $todayKey === $d; @endphp
+
+                                    <th class="w-12 px-2 py-2 text-center bg-white border-l border-slate-100">
+                                        <span
+                                            class="inline-flex items-center justify-center rounded-md px-2 py-1
+    {{ $isToday ? 'bg-[#DBEAFE] text-[#1E40AF] font-semibold' : 'bg-transparent' }}">
+                                            {{ strtoupper($d) }}
+                                        </span>
+                                    </th>
+                                @endforeach
+
+                                <th colspan="2" class="bg-white border-l border-slate-100"></th>
                             </tr>
                         </thead>
 

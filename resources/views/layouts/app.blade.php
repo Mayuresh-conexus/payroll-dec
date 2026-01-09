@@ -51,7 +51,7 @@
                     PA
                 </div>
                 <div class="text-lg font-bold tracking-tight" x-show="!sidebarCollapsed" x-transition.opacity>
-                    Payroll App
+                    Payroll
                 </div>
             </div>
 

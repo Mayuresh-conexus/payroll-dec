@@ -6,6 +6,7 @@ use App\Models\Employee;
 use App\Models\DailyRateAttendance;
 use App\Models\HourlyAttendance;
 use Illuminate\Http\Request;
+use Carbon\Carbon;
 
 class AttendanceController extends Controller
 {
@@ -28,6 +29,23 @@ class AttendanceController extends Controller
         ->get()
         ->keyBy('employee_id');
 
+    // compute ISO-week Monday and formatted date labels for each day
+    $dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
+    $monday = Carbon::now()->setISODate((int)$year, (int)$week, 1);
+    $dayDates = [];
+    foreach ($dayKeys as $i => $k) {
+        $dayDates[$k] = strtoupper($monday->copy()->addDays($i)->format('d M'));
+    }
+        
+        // compute a todayKey (mon..sun) when the selected year/week match today's ISO week
+        $todayKey = null;
+        $today = Carbon::now();
+        if ((int) $today->isoWeek() === (int) $week && (int) $today->year === (int) $year) {
+            $keys = ['mon','tue','wed','thu','fri','sat','sun'];
+            $index = max(0, min(6, $today->dayOfWeekIso - 1));
+            $todayKey = $keys[$index];
+        }
+
     // week lock flags
     $dailyWeekLocked = DailyRateAttendance::where('year', $year)
         ->where('week_number', $week)
@@ -39,10 +57,12 @@ class AttendanceController extends Controller
         ->where('locked', true)
         ->exists();
 
-    return view('attendance.index', compact(
+        return view('attendance.index', compact(
         'year',
         'week',
         'tab',
+        'dayDates',
+           'todayKey',
         'dailyEmployees',
         'hourlyEmployees',
         'dailyAttendances',

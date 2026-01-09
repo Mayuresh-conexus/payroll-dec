@@ -6,7 +6,7 @@
 
     <div class="bg-white/90 backdrop-blur-xl">
 
-        <h2 class="text-2xl font-semibold text-slate-800 mb-2">Welcome back</h2>
+        {{-- <h2 class="text-2xl font-semibold text-slate-800 mb-2">Welcome back</h2> --}}
         <p class="text-sm text-slate-500 mb-6">
             Sign in to access your payroll dashboard.
         </p>

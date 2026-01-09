@@ -235,13 +235,14 @@ class MonthlyPayrollController extends Controller
         ]);
 
         $month = $data['month'];
+        $monthFormatted = str_replace('-', '', $month);
         $year = (int) substr($month, 0, 4);
 
         $run = PayrollRun::updateOrCreate(
             ['period_type' => 'monthly', 'month' => $month],
             [
                 'year' => $year,
-                'week_number' => 0,
+                'week_number' => 0 . $monthFormatted,
                 'status' => 'draft',
                 'created_by' => auth()->id(),
                 'generated_at' => now(),

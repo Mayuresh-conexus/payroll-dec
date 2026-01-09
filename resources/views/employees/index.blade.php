@@ -230,7 +230,7 @@
                                 </label>
                                 <div class="relative">
                                     <span class="absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">
-                                        ₹
+                                        €
                                     </span>
                                     <input type="number" step="0.01" name="daily_rate"
                                         x-bind:disabled="empType !== 'daily_rate'"
@@ -248,7 +248,7 @@
                                 </label>
                                 <div class="relative">
                                     <span class="absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">
-                                        ₹
+                                        €
                                     </span>
                                     <input type="number" step="0.01" name="hourly_rate"
                                         x-bind:disabled="empType !== 'hourly'"
@@ -390,7 +390,7 @@
                                 </label>
                                 <div class="relative">
                                     <span class="absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">
-                                        ₹
+                                        €
                                     </span>
                                     <input type="number" step="0.01" name="daily_rate"
                                         x-model="editingEmployee.daily_rate"
@@ -409,7 +409,7 @@
                                 </label>
                                 <div class="relative">
                                     <span class="absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">
-                                        ₹
+                                        €
                                     </span>
                                     <input type="number" step="0.01" name="hourly_rate"
                                         x-model="editingEmployee.hourly_rate"

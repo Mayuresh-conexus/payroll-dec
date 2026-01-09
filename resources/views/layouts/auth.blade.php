@@ -71,7 +71,7 @@
                 <div class="flex items-center gap-3 mb-8">
                     <div
                         class="w-9 h-9 rounded-2xl bg-slate-900 text-white flex items-center justify-center text-xs font-semibold">
-                        PA
+                        <img style="border-radius:6px;" src="/fav.png">
                     </div>
                     <div>
                         <div class="text-xs font-semibold tracking-wide text-slate-900 uppercase">

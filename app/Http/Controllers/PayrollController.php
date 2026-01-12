@@ -213,7 +213,9 @@ class PayrollController extends Controller
 
             $totalDays   = $att->total_working_days ?? 6;
             $presentDays = $att->present_days ?? 0;
-            $dailyRate     = $employee->daily_rate ?? 0;
+            // use historical rate effective for the week start when available
+            $weekStart = Carbon::now()->setISODate((int)$year, (int)$week, 1);
+            $dailyRate = $employee->rateAt($weekStart, 'daily_rate') ?? $employee->daily_rate ?? 0;
             $overtimeAmount = $att->overtime_amount ?? 0;
 
             // include overtime amount in gross for daily-rate employees
@@ -244,7 +246,9 @@ class PayrollController extends Controller
 
             $hours = $att->total_hours ?? 0;
             $ot    = $att->overtime_hours ?? 0;
-            $rate  = $employee->hourly_rate ?? 0;
+            // historical hourly rate
+            $weekStart = Carbon::now()->setISODate((int)$year, (int)$week, 1);
+            $rate = $employee->rateAt($weekStart, 'hourly_rate') ?? $employee->hourly_rate ?? 0;
 
             $normalPay = $hours * $rate;
             $otPay     = $ot * $rate * 1;  // adjust factor if you want
@@ -301,6 +305,13 @@ class PayrollController extends Controller
             $cash  = $row['cash'] ?? 0;
             $bank  = $row['bank'] ?? ($gross - $cash);
 
+            // determine applied rates for snapshotting
+            $emp = Employee::find($row['employee_id']);
+            $weekStart = Carbon::now()->setISODate((int)$data['year'], (int)$data['week'], 1);
+            $appliedDaily = $emp ? ($emp->rateAt($weekStart, 'daily_rate') ?? $emp->daily_rate) : null;
+            $appliedHourly = $emp ? ($emp->rateAt($weekStart, 'hourly_rate') ?? $emp->hourly_rate) : null;
+            $appliedHoursPerDay = $emp ? ($emp->rateAt($weekStart, 'hours_per_day') ?? $emp->hours_per_day) : null;
+
             // Save payroll item: map overtime into the correct column depending on employee type
             $payload = [
                 'type'         => $row['type'],
@@ -310,6 +321,9 @@ class PayrollController extends Controller
                 'gross_amount' => $gross,
                 'cash_amount'  => $cash,
                 'bank_amount'  => $bank,
+                'applied_daily_rate' => $appliedDaily,
+                'applied_hourly_rate' => $appliedHourly,
+                'applied_hours_per_day' => $appliedHoursPerDay,
             ];
 
             if (($row['type'] ?? '') === 'daily_rate') {

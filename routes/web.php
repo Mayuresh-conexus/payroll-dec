@@ -25,6 +25,8 @@ Route::middleware('auth')->group(function () {
 
     // Employees CRUD
     Route::resource('employees', EmployeeController::class)->except(['show']);
+    // Employee rate history (AJAX)
+    Route::get('employees/{employee}/rates', [EmployeeController::class, 'rates'])->name('employees.rates');
 
     // Attendance Management
     Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index');

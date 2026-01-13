@@ -299,6 +299,33 @@ class MonthlyPayrollController extends Controller
                 }, $empWeeks));
             }
 
+            // Determine monetary totals: prefer monthly items, otherwise use prorated weekly sums from weekMap
+            $grossAmount = 0.0;
+            $cashAmount = 0.0;
+            $bankAmount = 0.0;
+
+            if ($monthlyItems->count()) {
+                $grossAmount = $useSet->sum('gross_amount');
+                $cashAmount = $useSet->sum('cash_amount');
+                $bankAmount = $useSet->sum('bank_amount');
+            } else {
+                $wkKey = $emp->id . '|' . $sample->type;
+                if (!empty($weekMap[$wkKey])) {
+                    foreach ($monthWeeks as $w) {
+                        if (!empty($weekMap[$wkKey][$w])) {
+                            $grossAmount += (float) ($weekMap[$wkKey][$w]['gross'] ?? 0);
+                            $cashAmount += (float) ($weekMap[$wkKey][$w]['cash'] ?? 0);
+                            $bankAmount += (float) ($weekMap[$wkKey][$w]['bank'] ?? 0);
+                        }
+                    }
+                } else {
+                    // fallback to summing whatever weekly PayrollItems exist in this group
+                    $grossAmount = $useSet->sum('gross_amount');
+                    $cashAmount = $useSet->sum('cash_amount');
+                    $bankAmount = $useSet->sum('bank_amount');
+                }
+            }
+
             $rows->push([
                 'employee' => $emp,
                 'type' => $sample->type,
@@ -310,9 +337,9 @@ class MonthlyPayrollController extends Controller
                 'overtime_hours' => $useSet->sum('overtime_hours'),
                 'overtime_amount' => $useSet->sum('overtime_amount'),
 
-                'gross_amount' => $useSet->sum('gross_amount'),
-                'cash_amount' => $useSet->sum('cash_amount'),
-                'bank_amount' => $useSet->sum('bank_amount'),
+                'gross_amount' => $grossAmount,
+                'cash_amount' => $cashAmount,
+                'bank_amount' => $bankAmount,
 
                 'transfer_id' => $useSet->pluck('transfer_id')->filter()->first() ?? null,
                 'transfer_date' => $useSet->pluck('transfer_date')->filter()->first() ?? null,

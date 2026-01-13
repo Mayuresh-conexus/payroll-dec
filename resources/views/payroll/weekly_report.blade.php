@@ -59,6 +59,12 @@
                         <th class="px-4 py-3 text-center">Sun</th>
                         <th class="px-4 py-3 text-center">Present</th>
                         <th class="px-4 py-3 text-center">Absent</th>
+                        <th class="px-4 py-3 text-right">Weekly</th>
+                        <th class="px-4 py-3 text-right">Addons</th>
+                        <th class="px-4 py-3 text-right">Addons Paid</th>
+                        <th class="px-4 py-3 text-right">Addons Pending</th>
+                        <th class="px-4 py-3 text-right">Cash</th>
+                        <th class="px-4 py-3 text-right">Bank</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -140,10 +146,112 @@
                                     {{ $absentDays }}
                                 </span>
                             </td>
+
+                            @php
+                                $pay = $itemsByEmployee[$employee->id] ?? null;
+                                $weeklyAmount = $pay->weekly_amount ?? ($pay->gross_amount ?? null);
+                                $addons = $pay->addons ?? null;
+                                if (is_string($addons)) {
+                                    $addons = json_decode($addons, true);
+                                }
+                                $addonsTotal = 0;
+                                if (is_array($addons)) {
+                                    foreach ($addons as $ad) {
+                                        $addonsTotal += (float) ($ad['amount'] ?? 0);
+                                    }
+                                }
+
+                                $paymentCash = (float) ($pay->cash_amount ?? 0);
+                                $paymentBank = (float) ($pay->bank_amount ?? 0);
+
+                                // cash applied: weekly first, then addons
+                                $appliedCashToWeekly = max(0, min($paymentCash, (float) ($weeklyAmount ?? 0)));
+                                $remainingCash = max(0, $paymentCash - $appliedCashToWeekly);
+                                $appliedCashToAddons = min($remainingCash, $addonsTotal);
+
+                                // bank applied: remaining weekly first, then addons
+                                $appliedBankToWeekly = min(
+                                    $paymentBank,
+                                    max(0, (float) ($weeklyAmount ?? 0) - $appliedCashToWeekly),
+                                );
+                                $remainingBank = max(0, $paymentBank - $appliedBankToWeekly);
+                                $appliedBankToAddons = min($remainingBank, max(0, $addonsTotal - $appliedCashToAddons));
+
+                                $addonsPaid = $appliedCashToAddons + $appliedBankToAddons;
+                                $addonsPending = max(0, $addonsTotal - $addonsPaid);
+
+                                $weeklyPending = max(
+                                    0,
+                                    (float) ($weeklyAmount ?? 0) - ($appliedCashToWeekly + $appliedBankToWeekly),
+                                );
+                            @endphp
+
+                            <td class="px-4 py-3 text-right text-sm">
+                                {{ $weeklyAmount !== null ? number_format($weeklyAmount, 2) : '-' }}</td>
+                            <td class="px-4 py-3 text-right text-sm">
+                                @if ($addonsTotal > 0)
+                                    <details class="text-sm">
+                                        <summary class="cursor-pointer">{{ number_format($addonsTotal, 2) }} ▾</summary>
+                                        <div class="mt-2 text-xs text-slate-600">
+                                            <div class="font-medium">Addons breakdown</div>
+                                            <ul class="mt-1 list-disc list-inside">
+                                                @if (is_array($addons) && count($addons))
+                                                    @foreach ($addons as $ad)
+                                                        <li>{{ $ad['date'] ?? 'n/a' }} —
+                                                            {{ number_format((float) ($ad['amount'] ?? 0), 2) }}</li>
+                                                    @endforeach
+                                                @else
+                                                    <li>No addon details</li>
+                                                @endif
+                                            </ul>
+
+                                            <div class="mt-2">
+                                                <div class="text-xs">Cash total:
+                                                    <strong>{{ number_format($paymentCash, 2) }}</strong>
+                                                </div>
+                                                <div class="text-xs">Cash → Weekly:
+                                                    <strong>{{ number_format($appliedCashToWeekly, 2) }}</strong>
+                                                </div>
+                                                <div class="text-xs">Cash → Addons:
+                                                    <strong>{{ number_format($appliedCashToAddons, 2) }}</strong>
+                                                </div>
+                                                <div class="text-xs mt-1">Bank total:
+                                                    <strong>{{ number_format($paymentBank, 2) }}</strong>
+                                                </div>
+                                                <div class="text-xs">Bank → Weekly:
+                                                    <strong>{{ number_format($appliedBankToWeekly ?? 0, 2) }}</strong>
+                                                </div>
+                                                <div class="text-xs">Bank → Addons:
+                                                    <strong>{{ number_format($appliedBankToAddons ?? 0, 2) }}</strong>
+                                                </div>
+                                                <div class="text-xs mt-1">Addons paid:
+                                                    <strong>{{ number_format($addonsPaid, 2) }}</strong>
+                                                </div>
+                                                <div class="text-xs">Addons pending:
+                                                    <strong>{{ number_format($addonsPending, 2) }}</strong>
+                                                </div>
+                                                <div class="text-xs">Weekly pending:
+                                                    <strong>{{ number_format($weeklyPending, 2) }}</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </details>
+                                @else
+                                    -
+                                @endif
+                            </td>
+                            <td class="px-4 py-3 text-right text-sm">
+                                {{ $addonsPaid > 0 ? number_format($addonsPaid, 2) : '-' }}</td>
+                            <td class="px-4 py-3 text-right text-sm">
+                                {{ $addonsPending > 0 ? number_format($addonsPending, 2) : '-' }}</td>
+                            <td class="px-4 py-3 text-right text-sm">
+                                {{ $pay ? number_format($pay->cash_amount ?? 0, 2) : '-' }}</td>
+                            <td class="px-4 py-3 text-right text-sm">
+                                {{ $pay ? number_format($pay->bank_amount ?? 0, 2) : '-' }}</td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="12" class="px-4 py-6 text-center text-sm text-slate-500">
+                            <td colspan="18" class="px-4 py-6 text-center text-sm text-slate-500">
                                 No daily rate employees or attendance found for this week.
                             </td>
                         </tr>

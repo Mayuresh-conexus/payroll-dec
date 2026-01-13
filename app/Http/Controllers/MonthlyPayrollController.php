@@ -202,9 +202,59 @@ class MonthlyPayrollController extends Controller
                         // nothing from this week's present days in the month
                         continue;
                     }
-                    $map[$k][$w]['gross'] += (float) ($it->gross_amount ?? 0) * $factor;
-                    $map[$k][$w]['cash']  += (float) ($it->cash_amount ?? 0) * $factor;
-                    $map[$k][$w]['bank']  += (float) ($it->bank_amount ?? 0) * $factor;
+                    // Prefer structured weekly/addons breakdown when available
+                    $itWeekly = (float) ($it->weekly_amount ?? 0);
+                    $addons = $it->addons ?? null;
+                    if (is_string($addons)) $addons = json_decode($addons, true);
+
+                    // sum addons that fall within this week AND inside the selected month
+                    $addonInMonth = 0.0;
+                    if (is_array($addons)) {
+                        foreach ($addons as $ad) {
+                            $adDate = null;
+                            if (!empty($ad['date'])) {
+                                try {
+                                    $adDate = Carbon::parse($ad['date']);
+                                } catch (\Throwable $e) {
+                                    $adDate = null;
+                                }
+                            }
+                            if ($adDate && $adDate->gte($weekStart) && $adDate->lte($weekEnd) && $adDate->month === $mStart->month) {
+                                $addonInMonth += (float) ($ad['amount'] ?? 0);
+                            }
+                        }
+                    }
+
+                    // prorated weekly amount (by presence-days factor)
+                    $proratedWeekly = $itWeekly * $factor;
+
+                    // prorate overtime/gross fallback when weekly not present
+                    $proratedOvertime = (float) ($it->overtime_amount ?? 0) * $factor;
+
+                    // available payment slices (prorated from stored cash/bank)
+                    $proratedCash = (float) ($it->cash_amount ?? 0) * $factor;
+                    $proratedBank = (float) ($it->bank_amount ?? 0) * $factor;
+
+                    // determine gross to add: prefer weekly+addons if provided, else fallback to gross * factor
+                    if ($itWeekly > 0 || $addonInMonth > 0) {
+                        $grossToAdd = $proratedWeekly + $addonInMonth + $proratedOvertime;
+                    } else {
+                        $grossToAdd = (float) ($it->gross_amount ?? 0) * $factor;
+                    }
+
+                    // allocate cash -> weekly first, then addons
+                    $appliedCashToWeekly = min($proratedCash, $proratedWeekly);
+                    $remainingCash = max(0, $proratedCash - $appliedCashToWeekly);
+                    $appliedCashToAddons = min($remainingCash, $addonInMonth);
+
+                    // allocate bank -> remaining weekly then remaining addons
+                    $appliedBankToWeekly = min($proratedBank, max(0, $proratedWeekly - $appliedCashToWeekly));
+                    $remainingBank = max(0, $proratedBank - $appliedBankToWeekly);
+                    $appliedBankToAddons = min($remainingBank, max(0, $addonInMonth - $appliedCashToAddons));
+
+                    $map[$k][$w]['gross'] += $grossToAdd;
+                    $map[$k][$w]['cash']  += $appliedCashToWeekly + $appliedCashToAddons;
+                    $map[$k][$w]['bank']  += $appliedBankToWeekly + $appliedBankToAddons;
                 } else {
                     // fallback to calendar-day prorate when present-days not available
                     $overlapStart = $weekStart->lt($mStart) ? $mStart->copy() : $weekStart->copy();
@@ -219,9 +269,52 @@ class MonthlyPayrollController extends Controller
                     if ($overlapDays <= 0) continue;
 
                     $factor = $overlapDays / 7.0;
-                    $map[$k][$w]['gross'] += (float) ($it->gross_amount ?? 0) * $factor;
-                    $map[$k][$w]['cash']  += (float) ($it->cash_amount ?? 0) * $factor;
-                    $map[$k][$w]['bank']  += (float) ($it->bank_amount ?? 0) * $factor;
+                    // calendar-day prorate: prefer weekly/addons breakdown when available
+                    $itWeekly = (float) ($it->weekly_amount ?? 0);
+                    $addons = $it->addons ?? null;
+                    if (is_string($addons)) $addons = json_decode($addons, true);
+
+                    // sum addons that fall within this week AND inside the selected month
+                    $addonInMonth = 0.0;
+                    if (is_array($addons)) {
+                        foreach ($addons as $ad) {
+                            $adDate = null;
+                            if (!empty($ad['date'])) {
+                                try {
+                                    $adDate = Carbon::parse($ad['date']);
+                                } catch (\Throwable $e) {
+                                    $adDate = null;
+                                }
+                            }
+                            if ($adDate && $adDate->gte($weekStart) && $adDate->lte($weekEnd) && $adDate->month === $mStart->month) {
+                                $addonInMonth += (float) ($ad['amount'] ?? 0);
+                            }
+                        }
+                    }
+
+                    $proratedWeekly = $itWeekly * $factor;
+                    $proratedOvertime = (float) ($it->overtime_amount ?? 0) * $factor;
+
+                    $proratedCash = (float) ($it->cash_amount ?? 0) * $factor;
+                    $proratedBank = (float) ($it->bank_amount ?? 0) * $factor;
+
+                    if ($itWeekly > 0 || $addonInMonth > 0) {
+                        $grossToAdd = $proratedWeekly + $addonInMonth + $proratedOvertime;
+                    } else {
+                        $grossToAdd = (float) ($it->gross_amount ?? 0) * $factor;
+                    }
+
+                    $appliedCashToWeekly = min($proratedCash, $proratedWeekly);
+                    $remainingCash = max(0, $proratedCash - $appliedCashToWeekly);
+                    $appliedCashToAddons = min($remainingCash, $addonInMonth);
+
+                    $appliedBankToWeekly = min($proratedBank, max(0, $proratedWeekly - $appliedCashToWeekly));
+                    $remainingBank = max(0, $proratedBank - $appliedBankToWeekly);
+                    $appliedBankToAddons = min($remainingBank, max(0, $addonInMonth - $appliedCashToAddons));
+
+                    $map[$k][$w]['gross'] += $grossToAdd;
+                    $map[$k][$w]['cash']  += $appliedCashToWeekly + $appliedCashToAddons;
+                    $map[$k][$w]['bank']  += $appliedBankToWeekly + $appliedBankToAddons;
                 }
             }
 
@@ -364,6 +457,10 @@ class MonthlyPayrollController extends Controller
             'items.*.gross' => 'required|numeric',
             'items.*.cash' => 'nullable|numeric',
             'items.*.bank' => 'nullable|numeric',
+            'items.*.weekly_amount' => 'nullable|numeric',
+            'items.*.addons' => 'nullable|array',
+            'items.*.addons.*.date' => 'nullable|date',
+            'items.*.addons.*.amount' => 'nullable|numeric',
             'items.*.overtime' => 'nullable|numeric',
             'items.*.transfer_id' => 'nullable|string',
             'items.*.transfer_date' => 'nullable|date',
@@ -403,6 +500,8 @@ class MonthlyPayrollController extends Controller
                 'gross_amount' => $gross,
                 'cash_amount' => $cash,
                 'bank_amount' => $bank,
+                'weekly_amount' => $row['weekly_amount'] ?? null,
+                'addons' => $row['addons'] ?? null,
                 'transfer_id' => $row['transfer_id'] ?? null,
                 'transfer_date' => $row['transfer_date'] ?? null,
                 'transfer_status' => $row['transfer_status'] ?? null,

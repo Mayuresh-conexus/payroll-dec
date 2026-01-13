@@ -61,6 +61,8 @@
                             <th class="px-4 py-3 text-left">Code</th>
                             <th class="px-4 py-3 text-left">Name</th>
                             <th class="px-4 py-3 text-center">Type</th>
+                            <th class="px-4 py-3 text-right">Weekly</th>
+                            <th class="px-4 py-3 text-right">Addons</th>
                             <th class="px-4 py-3 text-right">Gross</th>
                             <th class="px-4 py-3 text-right">Cash</th>
                             <th class="px-4 py-3 text-right">Bank</th>
@@ -72,8 +74,32 @@
                     </thead>
 
                     <tbody class="divide-y divide-slate-100">
+                        @php
+                            $monthRun = \App\Models\PayrollRun::where('period_type', 'monthly')
+                                ->where('month', $month)
+                                ->first();
+                            $itemsByEmployee = collect();
+                            if ($monthRun && $monthRun->items) {
+                                $itemsByEmployee = $monthRun->items->keyBy('employee_id');
+                            }
+                        @endphp
+
                         @forelse($rows as $index => $row)
-                            @php $emp = $row['employee']; @endphp
+                            @php
+                                $emp = $row['employee'];
+                                $pay = $itemsByEmployee[$emp->id] ?? null;
+                                $weeklyAmount = $pay->weekly_amount ?? ($pay->gross_amount ?? null);
+                                $addons = $pay->addons ?? null;
+                                if (is_string($addons)) {
+                                    $addons = json_decode($addons, true);
+                                }
+                                $addonsTotal = 0;
+                                if (is_array($addons)) {
+                                    foreach ($addons as $ad) {
+                                        $addonsTotal += (float) ($ad['amount'] ?? 0);
+                                    }
+                                }
+                            @endphp
                             <tr class="hover:bg-slate-50/80">
                                 <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ $emp->employee_code }}</td>
                                 <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ $emp->name }}</td>
@@ -84,6 +110,27 @@
                                     @else
                                         <span
                                             class="inline-flex px-2 py-1 rounded-full bg-blue-50 text-blue-700">Hourly</span>
+                                    @endif
+                                </td>
+
+                                <td class="px-4 py-3 text-right text-sm text-slate-800">
+                                    {{ $weeklyAmount !== null ? number_format($weeklyAmount, 2) : '-' }}</td>
+                                <td class="px-4 py-3 text-right text-sm">
+                                    @if ($addonsTotal > 0)
+                                        <details class="text-sm">
+                                            <summary class="cursor-pointer">{{ number_format($addonsTotal, 2) }} ▾
+                                            </summary>
+                                            <div class="mt-2 text-xs text-slate-600">
+                                                <ul class="list-disc list-inside">
+                                                    @foreach ($addons as $ad)
+                                                        <li>{{ $ad['date'] ?? 'n/a' }} —
+                                                            {{ number_format((float) ($ad['amount'] ?? 0), 2) }}</li>
+                                                    @endforeach
+                                                </ul>
+                                            </div>
+                                        </details>
+                                    @else
+                                        -
                                     @endif
                                 </td>
 
@@ -132,12 +179,16 @@
                                     value="{{ $row['bank_amount'] }}">
                                 <input type="hidden" name="items[{{ $index }}][cash]"
                                     value="{{ $row['cash_amount'] ?? 0 }}">
+                                <input type="hidden" name="items[{{ $index }}][weekly_amount]"
+                                    value="{{ $weeklyAmount ?? '' }}">
+                                <input type="hidden" name="items[{{ $index }}][addons]"
+                                    value='{{ json_encode($addons ?? []) }}'>
                                 <input type="hidden" name="items[{{ $index }}][overtime]"
                                     value="{{ $row['type'] === 'daily_rate' ? $row['overtime_amount'] ?? 0 : $row['overtime_hours'] ?? 0 }}">
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="11" class="px-4 py-6 text-center text-sm text-slate-500">No payroll items
+                                <td colspan="12" class="px-4 py-6 text-center text-sm text-slate-500">No payroll items
                                     available for this month.</td>
                             </tr>
                         @endforelse
@@ -146,7 +197,7 @@
                     @if ($rows->count())
                         <tfoot class="bg-slate-50 text-sm">
                             <tr>
-                                <td colspan="3" class="px-4 py-3 text-right font-semibold text-slate-700">Totals</td>
+                                <td colspan="5" class="px-4 py-3 text-right font-semibold text-slate-700">Totals</td>
                                 <td class="px-4 py-3 text-right font-semibold text-green-800">
                                     {{ number_format($totals['gross'], 2) }}</td>
                                 <td class="px-4 py-3 text-right font-semibold text-green-800">

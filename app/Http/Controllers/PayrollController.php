@@ -86,6 +86,12 @@ class PayrollController extends Controller
                     $overtimeField = 'overtime_hours';
                 }
 
+                // decode addons if stored as JSON string so view always receives array
+                $itemAddons = $item->addons ?? [];
+                if (is_string($itemAddons)) {
+                    $itemAddons = json_decode($itemAddons, true) ?: [];
+                }
+
                 $rowsByKey[$key] = [
                     'employee'        => $employee,
                     'type'            => $item->type,
@@ -99,6 +105,8 @@ class PayrollController extends Controller
                     'gross_amount'    => $gross,
                     'cash_amount'     => $cash,
                     'bank_amount'     => $gross - $cash,
+                    'weekly_amount'   => $item->weekly_amount ?? $gross,
+                    'addons'          => $itemAddons,
                 ];
             } else {
                 // 4b. Attendance not locked: use fresh attendance row, but cash from payroll if present
@@ -116,6 +124,12 @@ class PayrollController extends Controller
 
                     $row['cash_amount'] = $cash;
                     $row['bank_amount'] = $gross - $cash;
+                    $row['weekly_amount'] = $item->weekly_amount ?? ($row['gross_amount'] ?? 0);
+                    $rowAddons = $item->addons ?? [];
+                    if (is_string($rowAddons)) {
+                        $rowAddons = json_decode($rowAddons, true) ?: [];
+                    }
+                    $row['addons'] = $rowAddons;
 
                     $rowsByKey[$key] = $row;
                 } else {
@@ -137,6 +151,11 @@ class PayrollController extends Controller
                         $overtimeKey = 'overtime_hours';
                     }
 
+                    $itemAddons2 = $item->addons ?? [];
+                    if (is_string($itemAddons2)) {
+                        $itemAddons2 = json_decode($itemAddons2, true) ?: [];
+                    }
+
                     $rowsByKey[$key] = [
                         'employee'        => $employee,
                         'type'            => $item->type,
@@ -148,6 +167,8 @@ class PayrollController extends Controller
                         'gross_amount'    => $gross,
                         'cash_amount'     => $cash,
                         'bank_amount'     => $gross - $cash,
+                        'weekly_amount'   => $item->weekly_amount ?? $gross,
+                        'addons'          => $itemAddons2,
                     ];
                 }
             }
@@ -167,6 +188,9 @@ class PayrollController extends Controller
 
             $row['cash_amount'] = $cash;
             $row['bank_amount'] = $gross - $cash;
+            // when no payroll run exists yet, treat the attendance gross as the weekly_amount
+            $row['weekly_amount'] = $row['weekly_amount'] ?? $row['gross_amount'] ?? 0;
+            $row['addons'] = $row['addons'] ?? [];
 
             return $row;
         });
@@ -276,20 +300,41 @@ class PayrollController extends Controller
 
     public function saveWeek(Request $request)
     {
+        // Pre-process JSON payloads: if client sent `employee` object instead of `employee_id`, map it
+        $input = $request->all();
+        if (!empty($input['items']) && is_array($input['items'])) {
+            foreach ($input['items'] as $k => $it) {
+                if (empty($it['employee_id']) && !empty($it['employee']) && is_array($it['employee']) && !empty($it['employee']['id'])) {
+                    $input['items'][$k]['employee_id'] = $it['employee']['id'];
+                }
+                // also accept employee as object with numeric id
+                if (empty($input['items'][$k]['employee_id']) && !empty($it['employee']) && is_object($it['employee']) && !empty($it['employee']->id)) {
+                    $input['items'][$k]['employee_id'] = $it['employee']->id;
+                }
+            }
+            // replace request input so validation uses mapped employee_id
+            $request->replace($input);
+        }
+
         $data = $request->validate([
-            'year'                 => 'required|integer',
-            'week'                 => 'required|integer|min:1|max:52',
-            'items'                => 'required|array',
-            'items.*.employee_id'  => 'required|integer|exists:employees,id',
-            'items.*.type'         => 'required|in:daily_rate,hourly',
-            'items.*.total_days'   => 'nullable|integer',
-            'items.*.present_days' => 'nullable|integer',
-            'items.*.total_hours'  => 'nullable|numeric',
-            'items.*.overtime'     => 'nullable|numeric',
-            'items.*.gross'        => 'required|numeric',
-            'items.*.cash'         => 'nullable|numeric',
-            'items.*.bank'         => 'nullable|numeric',
-        ]);
+    'year'                 => 'required|integer',
+    'week'                 => 'required|integer|min:1|max:52',
+    'items'                => 'required|array',
+    'items.*.employee_id'  => 'required|integer|exists:employees,id',
+    'items.*.type'         => 'required|in:daily_rate,hourly',
+    'items.*.total_days'   => 'nullable|integer',
+    'items.*.present_days' => 'nullable|integer',
+    'items.*.total_hours'  => 'nullable|numeric',
+    'items.*.overtime'     => 'nullable|numeric',
+    'items.*.gross'        => 'required|numeric',
+    'items.*.cash'         => 'nullable|numeric',
+    'items.*.bank'         => 'nullable|numeric',
+    'items.*.weekly_amount'=> 'nullable|numeric',
+
+    // IMPORTANT: allow JSON string OR array
+    'items.*.addons' => 'nullable',
+    'items.*.addons_selected_dates' => 'nullable',
+]);
 
         $run = PayrollRun::updateOrCreate(
             ['year' => $data['year'], 'week_number' => $data['week']],
@@ -302,8 +347,69 @@ class PayrollController extends Controller
 
         foreach ($data['items'] as $row) {
             $gross = $row['gross'];
-            $cash  = $row['cash'] ?? 0;
-            $bank  = $row['bank'] ?? ($gross - $cash);
+            $cash  = (float) ($row['cash'] ?? 0);
+            $bank  = (float) ($row['bank'] ?? ($gross - $cash));
+
+            // handle applying cash to weekly and selected addon dates
+            $weeklyAmountOrig = (float) ($row['weekly_amount'] ?? 0);
+
+                // addons may arrive as JSON string from hidden input
+                $addonsOrig = $row['addons'] ?? [];
+                if (is_string($addonsOrig)) {
+                    $addonsOrig = json_decode($addonsOrig, true);
+                }
+                if (!is_array($addonsOrig)) {
+                    $addonsOrig = [];
+                }
+
+                // selected dates may arrive as JSON string
+                $addonsSelected = $row['addons_selected_dates'] ?? [];
+                if (is_string($addonsSelected)) {
+                    $addonsSelected = json_decode($addonsSelected, true);
+                }
+                if (!is_array($addonsSelected)) {
+                    $addonsSelected = [];
+                }
+
+            $addonsOrig = $row['addons'] ?? [];
+            if (is_string($addonsOrig)) {
+                $addonsOrig = json_decode($addonsOrig, true) ?: [];
+            }
+
+            $addonsSelectedJson = $row['addons_selected_dates'] ?? null;
+            $addonsSelected = [];
+            if ($addonsSelectedJson) {
+                $addonsSelected = json_decode($addonsSelectedJson, true) ?: [];
+            }
+
+            // Cash only applies to weekly portion (cap at weekly_amount)
+            $applyToWeekly = true; // cash is intended for weekly only per UI cap
+            $appliedToWeekly = min($cash, $weeklyAmountOrig);
+            // enforce cash cap to weekly portion
+            $cash = $appliedToWeekly;
+
+            // Update addons: preserve existing cash flags, and mark selected dates as paid (cash=true)
+            $updatedAddons = [];
+            foreach ($addonsOrig as $ad) {
+                $date = $ad['date'] ?? null;
+                $amt = (float) ($ad['amount'] ?? 0);
+                $cashFlag = isset($ad['cash']) ? (bool)$ad['cash'] : false;
+                if ($amt <= 0) continue;
+                if (in_array($date, $addonsSelected)) {
+                    $cashFlag = true;
+                }
+                $updatedAddons[] = ['date' => $date, 'amount' => $amt, 'cash' => $cashFlag];
+            }
+
+            // totals: gross is weekly + sum(all addon amounts). total addon cash is sum(addons where cash==true)
+            $totalAddonAmount = array_sum(array_map(fn($a) => (float)($a['amount'] ?? 0), $updatedAddons));
+            $totalAddonCash = array_sum(array_map(fn($a) => (float)($a['cash'] ? $a['amount'] : 0), $updatedAddons));
+
+            $totalCash = $appliedToWeekly + $totalAddonCash;
+            $grossTotal = $weeklyAmountOrig + $totalAddonAmount;
+
+            // recompute bank relative to gross minus total cash (don't let negative)
+            $bank = max(0, $grossTotal - $totalCash);
 
             // determine applied rates for snapshotting
             $emp = Employee::find($row['employee_id']);
@@ -318,9 +424,12 @@ class PayrollController extends Controller
                 'total_days'   => $row['total_days'] ?? null,
                 'present_days' => $row['present_days'] ?? null,
                 'total_hours'  => $row['total_hours'] ?? null,
-                'gross_amount' => $gross,
+                // persist weekly/addons/gross with addon cash flags
+                'gross_amount' => $grossTotal,
                 'cash_amount'  => $cash,
                 'bank_amount'  => $bank,
+                'weekly_amount' => $weeklyAmountOrig,
+                'addons' => $updatedAddons,
                 'applied_daily_rate' => $appliedDaily,
                 'applied_hourly_rate' => $appliedHourly,
                 'applied_hours_per_day' => $appliedHoursPerDay,
@@ -343,6 +452,41 @@ class PayrollController extends Controller
                 ],
                 $payload
             );
+            $updatedItem = PayrollItem::where('payroll_run_id', $run->id)
+                ->where('employee_id', $row['employee_id'])
+                ->first();
+        }
+
+        // If the client expects JSON (AJAX), return the updated item(s)
+        if ($request->wantsJson()) {
+            $items = PayrollItem::where('payroll_run_id', $run->id)
+                ->whereIn('employee_id', array_column($data['items'], 'employee_id'))
+                ->get()
+                ->map(function (PayrollItem $it) {
+                    $arr = $it->toArray();
+                    $addons = $arr['addons'] ?? [];
+                    if (is_string($addons)) {
+                        $addons = json_decode($addons, true) ?: [];
+                    }
+
+                    $addonTotal = array_sum(array_map(fn($a) => (float)($a['amount'] ?? 0), $addons));
+                    $addonCashTotal = array_sum(array_map(fn($a) => (float)($a['cash'] ? $a['amount'] : 0), $addons));
+
+                    $cashAmount = (float)($arr['cash_amount'] ?? 0);
+                    $totalCash = $cashAmount + $addonCashTotal;
+                    $gross = (float)($arr['gross_amount'] ?? 0);
+                    $bank = max(0, $gross - $totalCash);
+
+                    return array_merge($arr, [
+                        'addons' => $addons,
+                        'addonTotal' => $addonTotal,
+                        'addonCashTotal' => $addonCashTotal,
+                        'totalCash' => $totalCash,
+                        'computed_bank' => $bank,
+                    ]);
+                });
+
+            return response()->json(['items' => $items]);
         }
 
         return redirect()->route('payroll.index', [
@@ -713,7 +857,18 @@ $sheet->getStyle("K{$rowIndex}:P{$rowIndex}")
             ->get()
             ->keyBy('employee_id');
 
-        return view('payroll.weekly_report', compact('year', 'week', 'employees', 'attendance'));
+        // include any existing payroll items for this week (to show weekly/addon/payment state)
+        $run = PayrollRun::where('year', $year)
+            ->where('week_number', $week)
+            ->first();
+
+        $itemsByEmployee = collect();
+        if ($run) {
+            $items = PayrollItem::where('payroll_run_id', $run->id)->get();
+            $itemsByEmployee = $items->keyBy('employee_id');
+        }
+
+        return view('payroll.weekly_report', compact('year', 'week', 'employees', 'attendance', 'itemsByEmployee'));
     }
 
     public function weeklyReportCsv(Request $request): StreamedResponse

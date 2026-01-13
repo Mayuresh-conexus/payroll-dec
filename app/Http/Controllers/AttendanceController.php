@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Employee;
 use App\Models\DailyRateAttendance;
 use App\Models\HourlyAttendance;
+use App\Models\PayrollRun;
+use App\Models\PayrollItem;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 
@@ -138,6 +140,58 @@ public function storeDailyRate(Request $request)
                 'locked'             => $lockWeek,
             ]
         );
+
+        // Also upsert a weekly payroll item snapshot with weekly_amount and addons
+        $employee = Employee::find($employeeId);
+        $weekStart = Carbon::now()->setISODate((int)$year, (int)$week, 1);
+        $appliedDaily = $employee ? ($employee->rateAt($weekStart, 'daily_rate') ?? $employee->daily_rate) : 0;
+
+        // weekly base (exclude overtime addons)
+        $weeklyAmount = (float) $presentDays * (float) $appliedDaily;
+
+        // build addons array from per-day overtime amounts (daily overtime is amount already)
+        $addons = [];
+        $dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
+            foreach ($dayKeys as $i => $d) {
+                $amt = isset($overtimeNormalized[$d]) ? (float)$overtimeNormalized[$d] : 0.0;
+                if ($amt > 0) {
+                    $date = $weekStart->copy()->addDays($i)->toDateString();
+                    $addons[] = ['date' => $date, 'amount' => $amt, 'cash' => false];
+                }
+            }
+
+        $addonsTotal = array_sum(array_map(fn($a) => (float)($a['amount'] ?? 0), $addons));
+
+        $gross = $weeklyAmount + $addonsTotal;
+
+        // ensure a payroll run exists for this week
+        $run = PayrollRun::updateOrCreate(
+            ['year' => $year, 'week_number' => $week],
+            ['status' => 'draft', 'created_by' => auth()->id(), 'generated_at' => now(), 'period_type' => 'weekly']
+        );
+
+        $payload = [
+            'payroll_run_id' => $run->id,
+            'employee_id' => $employeeId,
+            'type' => 'daily_rate',
+            'total_days' => 6,
+            'present_days' => $presentDays,
+            'total_hours' => null,
+            'gross_amount' => $gross,
+            'cash_amount' => 0,
+            'bank_amount' => $gross,
+            'weekly_amount' => $weeklyAmount,
+            'addons' => $addons,
+            'applied_daily_rate' => $appliedDaily,
+            'note' => null,
+            'overtime_amount' => $otTotal,
+            'overtime_hours' => null,
+        ];
+
+        PayrollItem::updateOrCreate([
+            'payroll_run_id' => $run->id,
+            'employee_id' => $employeeId,
+        ], $payload);
     }
 
     DailyRateAttendance::where('year', $year)
@@ -240,6 +294,56 @@ public function storeHourly(Request $request)
                     'locked'         => $lockWeek,
                 ]
             );
+
+            // Also upsert weekly payroll snapshot: weekly_amount = regularHours * hourly_rate
+            $employee = Employee::find($employeeId);
+            $weekStart = Carbon::now()->setISODate((int)$year, (int)$week, 1);
+            $appliedHourly = $employee ? ($employee->rateAt($weekStart, 'hourly_rate') ?? $employee->hourly_rate) : 0;
+
+            $weeklyAmount = (float)$regularHours * (float)$appliedHourly;
+
+            // build addons array from ot_map hours -> convert to currency (hours * rate)
+            $addons = [];
+            $dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
+            foreach ($dayKeys as $i => $d) {
+                $otHours = isset($otMapNormalized[$d]) ? (float)$otMapNormalized[$d] : 0.0;
+                if ($otHours > 0) {
+                    $date = $weekStart->copy()->addDays($i)->toDateString();
+                    $addons[] = ['date' => $date, 'amount' => $otHours * $appliedHourly, 'cash' => false];
+                }
+            }
+
+            $addonsTotal = array_sum(array_map(fn($a) => (float)($a['amount'] ?? 0), $addons));
+            $gross = $weeklyAmount + $addonsTotal;
+
+            // ensure payroll run exists and save payroll item (cash/bank left unchanged)
+            $run = PayrollRun::updateOrCreate(
+                ['year' => $year, 'week_number' => $week],
+                ['status' => 'draft', 'created_by' => auth()->id(), 'generated_at' => now(), 'period_type' => 'weekly']
+            );
+
+            $payload = [
+                'payroll_run_id' => $run->id,
+                'employee_id' => $employeeId,
+                'type' => 'hourly',
+                'total_days' => null,
+                'present_days' => null,
+                'total_hours' => $regularHours,
+                'gross_amount' => $gross,
+                'cash_amount' => 0,
+                'bank_amount' => $gross,
+                'weekly_amount' => $weeklyAmount,
+                'addons' => $addons,
+                'applied_hourly_rate' => $appliedHourly,
+                'applied_hours_per_day' => $employee?->hours_per_day ?? null,
+                'overtime_hours' => $otTotal,
+                'overtime_amount' => null,
+            ];
+
+            PayrollItem::updateOrCreate([
+                'payroll_run_id' => $run->id,
+                'employee_id' => $employeeId,
+            ], $payload);
         }
 
     HourlyAttendance::where('year', $year)
@@ -334,6 +438,53 @@ public function storeCombined(Request $request)
                     'locked'             => $lockWeek,
                 ]
             );
+
+            // Also upsert a weekly payroll item snapshot for this daily-rate employee
+            $weekStart = Carbon::now()->setISODate((int)$year, (int)$week, 1);
+            $appliedDaily = $employee ? ($employee->rateAt($weekStart, 'daily_rate') ?? $employee->daily_rate) : 0;
+
+            $weeklyAmount = (float) $presentDays * (float) $appliedDaily;
+
+            $addons = [];
+            $dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
+            foreach ($dayKeys as $i => $d) {
+                $amt = isset($overtimeNormalized[$d]) ? (float)$overtimeNormalized[$d] : 0.0;
+                if ($amt > 0) {
+                    $date = $weekStart->copy()->addDays($i)->toDateString();
+                    $addons[] = ['date' => $date, 'amount' => $amt, 'cash' => false];
+                }
+            }
+
+            $addonsTotal = array_sum(array_map(fn($a) => (float)($a['amount'] ?? 0), $addons));
+            $gross = $weeklyAmount + $addonsTotal;
+
+            $run = PayrollRun::updateOrCreate(
+                ['year' => $year, 'week_number' => $week],
+                ['status' => 'draft', 'created_by' => auth()->id(), 'generated_at' => now(), 'period_type' => 'weekly']
+            );
+
+            $payload = [
+                'payroll_run_id' => $run->id,
+                'employee_id' => $employeeId,
+                'type' => 'daily_rate',
+                'total_days' => 6,
+                'present_days' => $presentDays,
+                'total_hours' => null,
+                'gross_amount' => $gross,
+                'cash_amount' => 0,
+                'bank_amount' => $gross,
+                'weekly_amount' => $weeklyAmount,
+                'addons' => $addons,
+                'applied_daily_rate' => $appliedDaily,
+                'note' => null,
+                'overtime_amount' => $otTotal,
+                'overtime_hours' => null,
+            ];
+
+            PayrollItem::updateOrCreate([
+                'payroll_run_id' => $run->id,
+                'employee_id' => $employeeId,
+            ], $payload);
         } else { // hourly
             $hoursMap = $row['hours_map'] ?? [];
             $otMap = $row['ot_map'] ?? [];
@@ -397,6 +548,53 @@ public function storeCombined(Request $request)
                     'locked'         => $lockWeek,
                 ]
             );
+
+            // Also upsert a weekly payroll item snapshot for this hourly employee
+            $weekStart = Carbon::now()->setISODate((int)$year, (int)$week, 1);
+            $appliedHourly = $employee ? ($employee->rateAt($weekStart, 'hourly_rate') ?? $employee->hourly_rate) : 0;
+
+            $weeklyAmount = (float)$regularHours * (float)$appliedHourly;
+
+            $addons = [];
+            $dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
+            foreach ($dayKeys as $i => $d) {
+                $hrs = isset($otNormalized[$d]) ? (float)$otNormalized[$d] : 0.0;
+                if ($hrs > 0) {
+                    $date = $weekStart->copy()->addDays($i)->toDateString();
+                    $addons[] = ['date' => $date, 'amount' => $hrs * $appliedHourly, 'cash' => false];
+                }
+            }
+
+            $addonsTotal = array_sum(array_map(fn($a) => (float)($a['amount'] ?? 0), $addons));
+            $gross = $weeklyAmount + $addonsTotal;
+
+            $run = PayrollRun::updateOrCreate(
+                ['year' => $year, 'week_number' => $week],
+                ['status' => 'draft', 'created_by' => auth()->id(), 'generated_at' => now(), 'period_type' => 'weekly']
+            );
+
+            $payload = [
+                'payroll_run_id' => $run->id,
+                'employee_id' => $employeeId,
+                'type' => 'hourly',
+                'total_days' => null,
+                'present_days' => null,
+                'total_hours' => $regularHours,
+                'gross_amount' => $gross,
+                'cash_amount' => 0,
+                'bank_amount' => $gross,
+                'weekly_amount' => $weeklyAmount,
+                'addons' => $addons,
+                'applied_hourly_rate' => $appliedHourly,
+                'applied_hours_per_day' => $employee?->hours_per_day ?? null,
+                'overtime_hours' => $otTotal,
+                'overtime_amount' => null,
+            ];
+
+            PayrollItem::updateOrCreate([
+                'payroll_run_id' => $run->id,
+                'employee_id' => $employeeId,
+            ], $payload);
         }
     }
 

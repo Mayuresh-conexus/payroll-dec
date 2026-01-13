@@ -15,6 +15,8 @@ class PayrollItem extends Model
         'total_hours',
         'overtime_hours',
         'overtime_amount',
+        'weekly_amount',
+        'addons',
         'gross_amount',
         'cash_amount',
         'bank_amount',
@@ -26,6 +28,11 @@ class PayrollItem extends Model
         'transfer_status',
         'note',
         'is_paid',
+    ];
+
+    protected $casts = [
+        'addons' => 'array',
+        'weekly_amount' => 'decimal:2',
     ];
 
     public function employee()

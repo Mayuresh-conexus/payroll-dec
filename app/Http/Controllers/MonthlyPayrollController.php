@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use Carbon\Carbon;
 use App\Models\PayrollItem;
 use App\Models\PayrollRun;
+use App\Models\DailyRateAttendance;
+use App\Models\HourlyAttendance;
 use Illuminate\Http\Request;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -96,24 +98,132 @@ class MonthlyPayrollController extends Controller
 
             $map = [];
 
+            // month boundaries for prorating
+            $mStart = Carbon::createFromFormat('Y-m-d', $month . '-01')->startOfMonth();
+            $mEnd = $mStart->copy()->endOfMonth();
+
             foreach ($items as $it) {
-        $run = $it->payrollRun; // use eager loaded relation
-        if (!$run) continue;
+                $run = $it->payrollRun; // use eager loaded relation
+                if (!$run) continue;
 
-        $w = (int) ($run->week_number ?? 0);
-        if ($w <= 0) continue;
+                $w = (int) ($run->week_number ?? 0);
+                if ($w <= 0) continue;
 
-        $k = $it->employee_id . '|' . $it->type;
+                $k = $it->employee_id . '|' . $it->type;
 
-        if (!isset($map[$k])) $map[$k] = [];
-        if (!isset($map[$k][$w])) {
-            $map[$k][$w] = ['gross' => 0.0, 'cash' => 0.0, 'bank' => 0.0];
-        }
+                if (!isset($map[$k])) $map[$k] = [];
+                if (!isset($map[$k][$w])) {
+                    $map[$k][$w] = ['gross' => 0.0, 'cash' => 0.0, 'bank' => 0.0];
+                }
 
-        $map[$k][$w]['gross'] += (float) ($it->gross_amount ?? 0);
-        $map[$k][$w]['cash']  += (float) ($it->cash_amount ?? 0);
-        $map[$k][$w]['bank']  += (float) ($it->bank_amount ?? 0);
-}
+                // compute week start / end for this run (ISO week Monday..Sunday)
+                $weekStart = Carbon::create()->setISODate((int)$run->year, (int)$run->week_number, 1)->startOfDay();
+                $weekEnd = $weekStart->copy()->addDays(6)->endOfDay();
+
+                // compute overlap with month (by presence days when available)
+                $dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
+
+                // Try to fetch attendance for this employee/week to count present days
+                $presentMap = null; // associative dayKey => 0|1
+                if ($it->type === 'daily_rate') {
+                    $att = DailyRateAttendance::where('employee_id', $it->employee_id)
+                        ->where('year', (int)$run->year)
+                        ->where('week_number', (int)$run->week_number)
+                        ->first();
+                    if ($att) {
+                        $dm = $att->days_map ?? null;
+                        if (is_string($dm)) $dm = json_decode($dm, true);
+                        if (is_array($dm)) {
+                            $presentMap = [];
+                            foreach ($dayKeys as $d) {
+                                $presentMap[$d] = !empty($dm[$d]) ? 1 : 0;
+                            }
+                        }
+                    }
+                } else {
+                    $att = HourlyAttendance::where('employee_id', $it->employee_id)
+                        ->where('year', (int)$run->year)
+                        ->where('week_number', (int)$run->week_number)
+                        ->first();
+                    if ($att) {
+                        $hm = $att->hours_map ?? null;
+                        if (is_string($hm)) $hm = json_decode($hm, true);
+                        if (is_array($hm)) {
+                            $presentMap = [];
+                            foreach ($dayKeys as $d) {
+                                $presentMap[$d] = (!empty($hm[$d]) && (float)$hm[$d] > 0) ? 1 : 0;
+                            }
+                        }
+                    }
+                }
+
+                // Fallback: if PayrollItem itself has present_days or days_map, attempt to use it
+                if ($presentMap === null) {
+                    if (!empty($it->days_map)) {
+                        $dm = $it->days_map;
+                        if (is_string($dm)) $dm = json_decode($dm, true);
+                        if (is_array($dm)) {
+                            $presentMap = [];
+                            foreach ($dayKeys as $d) {
+                                $presentMap[$d] = !empty($dm[$d]) ? 1 : 0;
+                            }
+                        }
+                    }
+                }
+
+                // compute week day dates and count overlaps
+                $totalPresent = 0;
+                $presentInMonth = 0;
+                for ($i = 0; $i < 7; $i++) {
+                    $date = $weekStart->copy()->addDays($i);
+                    $key = $dayKeys[$i];
+                    $isPresent = null;
+                    if (is_array($presentMap) && array_key_exists($key, $presentMap)) {
+                        $isPresent = (int) $presentMap[$key];
+                    }
+
+                    if ($isPresent === null) {
+                        // last resort: derive presence from PayrollItem.present_days by distributing evenly
+                        $isPresent = null; // unknown
+                    }
+
+                    if ($isPresent === 1) {
+                        $totalPresent++;
+                        if ($date->month === $mStart->month) {
+                            $presentInMonth++;
+                        }
+                    }
+                }
+
+                if ($totalPresent > 0) {
+                    // prorate by present-days ratio
+                    $factor = $presentInMonth / max(1, $totalPresent);
+                    if ($presentInMonth <= 0) {
+                        // nothing from this week's present days in the month
+                        continue;
+                    }
+                    $map[$k][$w]['gross'] += (float) ($it->gross_amount ?? 0) * $factor;
+                    $map[$k][$w]['cash']  += (float) ($it->cash_amount ?? 0) * $factor;
+                    $map[$k][$w]['bank']  += (float) ($it->bank_amount ?? 0) * $factor;
+                } else {
+                    // fallback to calendar-day prorate when present-days not available
+                    $overlapStart = $weekStart->lt($mStart) ? $mStart->copy() : $weekStart->copy();
+                    $overlapEnd = $weekEnd->gt($mEnd) ? $mEnd->copy() : $weekEnd->copy();
+
+                    if ($overlapStart->lte($overlapEnd)) {
+                        $overlapDays = $overlapStart->diffInDays($overlapEnd) + 1;
+                    } else {
+                        $overlapDays = 0;
+                    }
+
+                    if ($overlapDays <= 0) continue;
+
+                    $factor = $overlapDays / 7.0;
+                    $map[$k][$w]['gross'] += (float) ($it->gross_amount ?? 0) * $factor;
+                    $map[$k][$w]['cash']  += (float) ($it->cash_amount ?? 0) * $factor;
+                    $map[$k][$w]['bank']  += (float) ($it->bank_amount ?? 0) * $factor;
+                }
+            }
 
 
         return $map;

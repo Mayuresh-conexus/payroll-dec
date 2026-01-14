@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Carbon\Carbon;
+use App\Models\Employee; 
 use App\Models\PayrollItem;
 use App\Models\PayrollRun;
 use App\Models\DailyRateAttendance;
@@ -35,51 +36,42 @@ class MonthlyPayrollController extends Controller
         return view('payroll.monthly_index', compact('month', 'rows', 'totals'));
     }
 
-    /**
-     * Weeks that overlap the selected month.
-     * Uses ISO week conversion: (year, week_number) -> week start/end dates.
-     */
-   protected function getWeeksForMonth(string $month): array
-{
-    $mStart = Carbon::createFromFormat('Y-m-d', $month . '-01')->startOfMonth();
-    $mEnd   = $mStart->copy()->endOfMonth();
+    protected function getWeeksForMonth(string $month): array
+    {
+        $mStart = Carbon::createFromFormat('Y-m-d', $month . '-01')->startOfMonth();
+        $mEnd   = $mStart->copy()->endOfMonth();
 
-    $runs = PayrollRun::query()
-        ->where('period_type', 'weekly')
-        ->whereNotNull('week_number')
-        ->where('week_number', '>', 0)
-        ->where('year', (int) $mStart->year) // usually enough, optional
-        ->get(['year', 'week_number']);
+        $runs = PayrollRun::query()
+            ->where('period_type', 'weekly')
+            ->whereNotNull('week_number')
+            ->where('week_number', '>', 0)
+            ->where('year', (int) $mStart->year)
+            ->get(['year', 'week_number']);
 
-    $weeks = [];
+        $weeks = [];
 
-    foreach ($runs as $r) {
-        $weekStart = Carbon::create()->setISODate((int)$r->year, (int)$r->week_number)->startOfWeek(Carbon::MONDAY);
-        $weekEnd   = $weekStart->copy()->endOfWeek(Carbon::SUNDAY);
+        foreach ($runs as $r) {
+            $weekStart = Carbon::create()->setISODate((int)$r->year, (int)$r->week_number)->startOfWeek(Carbon::MONDAY);
+            $weekEnd   = $weekStart->copy()->endOfWeek(Carbon::SUNDAY);
 
-        // include week if it overlaps the month
-        if ($weekStart->lte($mEnd) && $weekEnd->gte($mStart)) {
-            $weeks[] = (int) $r->week_number;
+            if ($weekStart->lte($mEnd) && $weekEnd->gte($mStart)) {
+                $weeks[] = (int) $r->week_number;
+            }
         }
+
+        $weeks = array_values(array_unique($weeks));
+        sort($weeks);
+
+        return $weeks;
     }
 
-    $weeks = array_values(array_unique($weeks));
-    sort($weeks);
+   protected function buildEmployeeWeekMap(string $month): array
+{
+    $weeks = $this->getWeeksForMonth($month);
+    if (empty($weeks)) return [];
 
-    return $weeks;
-}
-
-
-    /**
-     * Map: employee_id|type => week_number => sums
-     * Only includes weekly runs whose weeks overlap the selected month.
-     */
-    protected function buildEmployeeWeekMap(string $month): array
-    {
-        $weeks = $this->getWeeksForMonth($month);
-        if (empty($weeks)) return [];
-
-        $mStart = Carbon::createFromFormat('Y-m-d', $month . '-01');
+    $mStart = Carbon::createFromFormat('Y-m-d', $month . '-01');
+    $mEnd = $mStart->copy()->endOfMonth();
 
     $runIds = PayrollRun::query()
         ->where(function ($q) {
@@ -90,362 +82,307 @@ class MonthlyPayrollController extends Controller
         ->pluck('id')
         ->all();
 
-            if (empty($runIds)) return [];
+    if (empty($runIds)) return [];
 
-            $items = PayrollItem::with('payrollRun')
+    $items = PayrollItem::with('payrollRun')
         ->whereIn('payroll_run_id', $runIds)
         ->get();
 
-            $map = [];
+    $map = [];
 
-            // month boundaries for prorating
-            $mStart = Carbon::createFromFormat('Y-m-d', $month . '-01')->startOfMonth();
-            $mEnd = $mStart->copy()->endOfMonth();
+    foreach ($items as $it) {
+        $run = $it->payrollRun;
+        if (!$run) continue;
 
-            foreach ($items as $it) {
-                $run = $it->payrollRun; // use eager loaded relation
-                if (!$run) continue;
+        $w = (int) ($run->week_number ?? 0);
+        if ($w <= 0) continue;
 
-                $w = (int) ($run->week_number ?? 0);
-                if ($w <= 0) continue;
+        $k = $it->employee_id . '|' . $it->type;
 
-                $k = $it->employee_id . '|' . $it->type;
-
-                if (!isset($map[$k])) $map[$k] = [];
-                if (!isset($map[$k][$w])) {
-                    $map[$k][$w] = ['gross' => 0.0, 'cash' => 0.0, 'bank' => 0.0];
-                }
-
-                // compute week start / end for this run (ISO week Monday..Sunday)
-                $weekStart = Carbon::create()->setISODate((int)$run->year, (int)$run->week_number, 1)->startOfDay();
-                $weekEnd = $weekStart->copy()->addDays(6)->endOfDay();
-
-                // compute overlap with month (by presence days when available)
-                $dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
-
-                // Try to fetch attendance for this employee/week to count present days
-                $presentMap = null; // associative dayKey => 0|1
-                if ($it->type === 'daily_rate') {
-                    $att = DailyRateAttendance::where('employee_id', $it->employee_id)
-                        ->where('year', (int)$run->year)
-                        ->where('week_number', (int)$run->week_number)
-                        ->first();
-                    if ($att) {
-                        $dm = $att->days_map ?? null;
-                        if (is_string($dm)) $dm = json_decode($dm, true);
-                        if (is_array($dm)) {
-                            $presentMap = [];
-                            foreach ($dayKeys as $d) {
-                                $presentMap[$d] = !empty($dm[$d]) ? 1 : 0;
-                            }
-                        }
-                    }
-                } else {
-                    $att = HourlyAttendance::where('employee_id', $it->employee_id)
-                        ->where('year', (int)$run->year)
-                        ->where('week_number', (int)$run->week_number)
-                        ->first();
-                    if ($att) {
-                        $hm = $att->hours_map ?? null;
-                        if (is_string($hm)) $hm = json_decode($hm, true);
-                        if (is_array($hm)) {
-                            $presentMap = [];
-                            foreach ($dayKeys as $d) {
-                                $presentMap[$d] = (!empty($hm[$d]) && (float)$hm[$d] > 0) ? 1 : 0;
-                            }
-                        }
-                    }
-                }
-
-                // Fallback: if PayrollItem itself has present_days or days_map, attempt to use it
-                if ($presentMap === null) {
-                    if (!empty($it->days_map)) {
-                        $dm = $it->days_map;
-                        if (is_string($dm)) $dm = json_decode($dm, true);
-                        if (is_array($dm)) {
-                            $presentMap = [];
-                            foreach ($dayKeys as $d) {
-                                $presentMap[$d] = !empty($dm[$d]) ? 1 : 0;
-                            }
-                        }
-                    }
-                }
-
-                // compute week day dates and count overlaps
-                $totalPresent = 0;
-                $presentInMonth = 0;
-                for ($i = 0; $i < 7; $i++) {
-                    $date = $weekStart->copy()->addDays($i);
-                    $key = $dayKeys[$i];
-                    $isPresent = null;
-                    if (is_array($presentMap) && array_key_exists($key, $presentMap)) {
-                        $isPresent = (int) $presentMap[$key];
-                    }
-
-                    if ($isPresent === null) {
-                        // last resort: derive presence from PayrollItem.present_days by distributing evenly
-                        $isPresent = null; // unknown
-                    }
-
-                    if ($isPresent === 1) {
-                        $totalPresent++;
-                        if ($date->month === $mStart->month) {
-                            $presentInMonth++;
-                        }
-                    }
-                }
-
-                if ($totalPresent > 0) {
-                    // prorate by present-days ratio
-                    $factor = $presentInMonth / max(1, $totalPresent);
-                    if ($presentInMonth <= 0) {
-                        // nothing from this week's present days in the month
-                        continue;
-                    }
-                    // Prefer structured weekly/addons breakdown when available
-                    $itWeekly = (float) ($it->weekly_amount ?? 0);
-                    $addons = $it->addons ?? null;
-                    if (is_string($addons)) $addons = json_decode($addons, true);
-
-                    // sum addons that fall within this week AND inside the selected month
-                    $addonInMonth = 0.0;
-                    if (is_array($addons)) {
-                        foreach ($addons as $ad) {
-                            $adDate = null;
-                            if (!empty($ad['date'])) {
-                                try {
-                                    $adDate = Carbon::parse($ad['date']);
-                                } catch (\Throwable $e) {
-                                    $adDate = null;
-                                }
-                            }
-                            if ($adDate && $adDate->gte($weekStart) && $adDate->lte($weekEnd) && $adDate->month === $mStart->month) {
-                                $addonInMonth += (float) ($ad['amount'] ?? 0);
-                            }
-                        }
-                    }
-
-                    // prorated weekly amount (by presence-days factor)
-                    $proratedWeekly = $itWeekly * $factor;
-
-                    // prorate overtime/gross fallback when weekly not present
-                    $proratedOvertime = (float) ($it->overtime_amount ?? 0) * $factor;
-
-                    // available payment slices (prorated from stored cash/bank)
-                    $proratedCash = (float) ($it->cash_amount ?? 0) * $factor;
-                    $proratedBank = (float) ($it->bank_amount ?? 0) * $factor;
-
-                    // determine gross to add: prefer weekly+addons if provided, else fallback to gross * factor
-                    if ($itWeekly > 0 || $addonInMonth > 0) {
-                        $grossToAdd = $proratedWeekly + $addonInMonth + $proratedOvertime;
-                    } else {
-                        $grossToAdd = (float) ($it->gross_amount ?? 0) * $factor;
-                    }
-
-                    // allocate cash -> weekly first, then addons
-                    $appliedCashToWeekly = min($proratedCash, $proratedWeekly);
-                    $remainingCash = max(0, $proratedCash - $appliedCashToWeekly);
-                    $appliedCashToAddons = min($remainingCash, $addonInMonth);
-
-                    // allocate bank -> remaining weekly then remaining addons
-                    $appliedBankToWeekly = min($proratedBank, max(0, $proratedWeekly - $appliedCashToWeekly));
-                    $remainingBank = max(0, $proratedBank - $appliedBankToWeekly);
-                    $appliedBankToAddons = min($remainingBank, max(0, $addonInMonth - $appliedCashToAddons));
-
-                    $map[$k][$w]['gross'] += $grossToAdd;
-                    $map[$k][$w]['cash']  += $appliedCashToWeekly + $appliedCashToAddons;
-                    $map[$k][$w]['bank']  += $appliedBankToWeekly + $appliedBankToAddons;
-                } else {
-                    // fallback to calendar-day prorate when present-days not available
-                    $overlapStart = $weekStart->lt($mStart) ? $mStart->copy() : $weekStart->copy();
-                    $overlapEnd = $weekEnd->gt($mEnd) ? $mEnd->copy() : $weekEnd->copy();
-
-                    if ($overlapStart->lte($overlapEnd)) {
-                        $overlapDays = $overlapStart->diffInDays($overlapEnd) + 1;
-                    } else {
-                        $overlapDays = 0;
-                    }
-
-                    if ($overlapDays <= 0) continue;
-
-                    $factor = $overlapDays / 7.0;
-                    // calendar-day prorate: prefer weekly/addons breakdown when available
-                    $itWeekly = (float) ($it->weekly_amount ?? 0);
-                    $addons = $it->addons ?? null;
-                    if (is_string($addons)) $addons = json_decode($addons, true);
-
-                    // sum addons that fall within this week AND inside the selected month
-                    $addonInMonth = 0.0;
-                    if (is_array($addons)) {
-                        foreach ($addons as $ad) {
-                            $adDate = null;
-                            if (!empty($ad['date'])) {
-                                try {
-                                    $adDate = Carbon::parse($ad['date']);
-                                } catch (\Throwable $e) {
-                                    $adDate = null;
-                                }
-                            }
-                            if ($adDate && $adDate->gte($weekStart) && $adDate->lte($weekEnd) && $adDate->month === $mStart->month) {
-                                $addonInMonth += (float) ($ad['amount'] ?? 0);
-                            }
-                        }
-                    }
-
-                    $proratedWeekly = $itWeekly * $factor;
-                    $proratedOvertime = (float) ($it->overtime_amount ?? 0) * $factor;
-
-                    $proratedCash = (float) ($it->cash_amount ?? 0) * $factor;
-                    $proratedBank = (float) ($it->bank_amount ?? 0) * $factor;
-
-                    if ($itWeekly > 0 || $addonInMonth > 0) {
-                        $grossToAdd = $proratedWeekly + $addonInMonth + $proratedOvertime;
-                    } else {
-                        $grossToAdd = (float) ($it->gross_amount ?? 0) * $factor;
-                    }
-
-                    $appliedCashToWeekly = min($proratedCash, $proratedWeekly);
-                    $remainingCash = max(0, $proratedCash - $appliedCashToWeekly);
-                    $appliedCashToAddons = min($remainingCash, $addonInMonth);
-
-                    $appliedBankToWeekly = min($proratedBank, max(0, $proratedWeekly - $appliedCashToWeekly));
-                    $remainingBank = max(0, $proratedBank - $appliedBankToWeekly);
-                    $appliedBankToAddons = min($remainingBank, max(0, $addonInMonth - $appliedCashToAddons));
-
-                    $map[$k][$w]['gross'] += $grossToAdd;
-                    $map[$k][$w]['cash']  += $appliedCashToWeekly + $appliedCashToAddons;
-                    $map[$k][$w]['bank']  += $appliedBankToWeekly + $appliedBankToAddons;
-                }
-            }
-
-
-        return $map;
-    }
-
-    protected function buildMonthRows(string $month)
-    {
-        $start = Carbon::parse($month . '-01')->startOfMonth();
-        $end   = $start->copy()->endOfMonth();
-
-        $monthWeeks = $this->getWeeksForMonth($month);
-        $weekMap = $this->buildEmployeeWeekMap($month);
-
-        $weeks = $this->getWeeksForMonth($month);
-
-        $weeklyRunIds = PayrollRun::query()
-        ->where('period_type', 'weekly')
-        ->where('year', (int) $start->year)
-        ->whereIn('week_number', $monthWeeks)
-        ->pluck('id')
-        ->all();
-
-        // Include weekly runs created in the month AND monthly runs explicitly for this month
-        $items = PayrollItem::with(['employee', 'payrollRun'])
-            ->where(function ($q) use ($weeklyRunIds, $month) {
-
-                // weekly items that belong to overlapping weeks
-                if (!empty($weeklyRunIds)) {
-                    $q->whereIn('payroll_run_id', $weeklyRunIds);
-                }
-
-                // also include monthly run items for this month
-                $q->orWhereHas('payrollRun', function ($qr) use ($month) {
-                    $qr->where('period_type', 'monthly')->where('month', $month);
-                });
-            })
-            ->get();
-
-        $grouped = $items->groupBy(function ($it) {
-            return $it->employee_id . '|' . $it->type;
-        });
-
-        $rows = collect();
-
-        foreach ($grouped as $key => $group) {
-            $sample = $group->first();
-            $emp = $sample->employee;
-            if (!$emp) continue;
-
-            // Prefer monthly items for totals when available
-            $monthlyItems = $group->filter(function ($it) use ($month) {
-                return $it->payrollRun
-                    && ($it->payrollRun->period_type === 'monthly')
-                    && ($it->payrollRun->month === $month);
-            });
-
-            $useSet = $monthlyItems->count() ? $monthlyItems : $group;
-
-            // Weeks display should come from weekly map for this month
-            $wkKey = $emp->id . '|' . $sample->type;
-            $empWeeks = [];
-
-            foreach ($monthWeeks as $w) {
-                if (!empty($weekMap[$wkKey][$w])) {
-                    $empWeeks[] = (int) $w;
-                }
-            }
-
-            $weeksDisplay = '';
-            if (!empty($empWeeks)) {
-                $weeksDisplay = implode(' ', array_map(function ($w) {
-                    return 'wk' . $w;
-                }, $empWeeks));
-            }
-
-            // Determine monetary totals: prefer monthly items, otherwise use prorated weekly sums from weekMap
-            $grossAmount = 0.0;
-            $cashAmount = 0.0;
-            $bankAmount = 0.0;
-
-            if ($monthlyItems->count()) {
-                $grossAmount = $useSet->sum('gross_amount');
-                $cashAmount = $useSet->sum('cash_amount');
-                $bankAmount = $useSet->sum('bank_amount');
-            } else {
-                $wkKey = $emp->id . '|' . $sample->type;
-                if (!empty($weekMap[$wkKey])) {
-                    foreach ($monthWeeks as $w) {
-                        if (!empty($weekMap[$wkKey][$w])) {
-                            $grossAmount += (float) ($weekMap[$wkKey][$w]['gross'] ?? 0);
-                            $cashAmount += (float) ($weekMap[$wkKey][$w]['cash'] ?? 0);
-                            $bankAmount += (float) ($weekMap[$wkKey][$w]['bank'] ?? 0);
-                        }
-                    }
-                } else {
-                    // fallback to summing whatever weekly PayrollItems exist in this group
-                    $grossAmount = $useSet->sum('gross_amount');
-                    $cashAmount = $useSet->sum('cash_amount');
-                    $bankAmount = $useSet->sum('bank_amount');
-                }
-            }
-
-            $rows->push([
-                'employee' => $emp,
-                'type' => $sample->type,
-
-                'present_days' => $useSet->sum('present_days'),
-                'total_days' => $useSet->sum('total_days'),
-                'total_hours' => $useSet->sum('total_hours'),
-
-                'overtime_hours' => $useSet->sum('overtime_hours'),
-                'overtime_amount' => $useSet->sum('overtime_amount'),
-
-                'gross_amount' => $grossAmount,
-                'cash_amount' => $cashAmount,
-                'bank_amount' => $bankAmount,
-
-                'transfer_id' => $useSet->pluck('transfer_id')->filter()->first() ?? null,
-                'transfer_date' => $useSet->pluck('transfer_date')->filter()->first() ?? null,
-                'transfer_status' => $useSet->pluck('transfer_status')->filter()->first() ?? null,
-                'note' => $useSet->pluck('note')->filter()->first() ?? null,
-
-                'weeks' => $empWeeks,
-                'weeks_display' => $weeksDisplay,
-            ]);
+        if (!isset($map[$k])) $map[$k] = [];
+        if (!isset($map[$k][$w])) {
+            $map[$k][$w] = [
+                'gross' => 0.0,
+                'cash' => 0.0,
+                'bank' => 0.0,
+                'weekly' => 0.0,
+                'addon_total' => 0.0,
+                'addon_cash_total' => 0.0,
+                'addons' => []
+            ];
         }
 
-        return $rows;
+        $weekStart = Carbon::create()->setISODate((int)$run->year, (int)$run->week_number, 1)->startOfDay();
+        $weekEnd = $weekStart->copy()->addDays(6)->endOfDay();
+
+        $dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
+
+        // Collect attendance data
+        $presentMap = null;
+        if ($it->type === 'daily_rate') {
+            $att = DailyRateAttendance::where('employee_id', $it->employee_id)
+                ->where('year', (int)$run->year)
+                ->where('week_number', (int)$run->week_number)
+                ->first();
+            if ($att) {
+                $dm = $att->days_map ?? null;
+                if (is_string($dm)) $dm = json_decode($dm, true);
+                if (is_array($dm)) {
+                    $presentMap = [];
+                    foreach ($dayKeys as $d) {
+                        $presentMap[$d] = !empty($dm[$d]) ? 1 : 0;
+                    }
+                }
+            }
+        } else {
+            $att = HourlyAttendance::where('employee_id', $it->employee_id)
+                ->where('year', (int)$run->year)
+                ->where('week_number', (int)$run->week_number)
+                ->first();
+            if ($att) {
+                $hm = $att->hours_map ?? null;
+                if (is_string($hm)) $hm = json_decode($hm, true);
+                if (is_array($hm)) {
+                    $presentMap = [];
+                    foreach ($dayKeys as $d) {
+                        $presentMap[$d] = (!empty($hm[$d]) && (float)$hm[$d] > 0) ? 1 : 0;
+                    }
+                }
+            }
+        }
+
+        if ($presentMap === null) {
+            if (!empty($it->days_map)) {
+                $dm = $it->days_map;
+                if (is_string($dm)) $dm = json_decode($dm, true);
+                if (is_array($dm)) {
+                    $presentMap = [];
+                    foreach ($dayKeys as $d) {
+                        $presentMap[$d] = !empty($dm[$d]) ? 1 : 0;
+                    }
+                }
+            }
+        }
+
+        // Calculate present days
+        $totalPresent = 0;
+        $presentInMonth = 0;
+        for ($i = 0; $i < 7; $i++) {
+            $date = $weekStart->copy()->addDays($i);
+            $key = $dayKeys[$i];
+            $isPresent = null;
+            if (is_array($presentMap) && array_key_exists($key, $presentMap)) {
+                $isPresent = (int) $presentMap[$key];
+            }
+
+            if ($isPresent === null) {
+                $isPresent = null;
+            }
+
+            if ($isPresent === 1) {
+                $totalPresent++;
+                if ($date->month === $mStart->month) {
+                    $presentInMonth++;
+                }
+            }
+        }
+
+        if ($totalPresent > 0) {
+            $factor = $presentInMonth / max(1, $totalPresent);
+            if ($presentInMonth <= 0) {
+                continue;
+            }
+
+            $itWeekly = (float) ($it->weekly_amount ?? 0);
+            $addons = $it->addons ?? null;
+            if (is_string($addons)) $addons = json_decode($addons, true);
+
+            $addonInMonth = 0.0;
+            $addonCashInMonth = 0.0;
+            $addonsInMonthList = [];
+
+            if (is_array($addons)) {
+                foreach ($addons as $ad) {
+                    $adDate = null;
+                    if (!empty($ad['date'])) {
+                        try {
+                            $adDate = Carbon::parse($ad['date']);
+                        } catch (\Throwable $e) {
+                            $adDate = null;
+                        }
+                    }
+                    if (!$adDate) continue;
+                    if ($adDate->format('Y-m') !== $mStart->format('Y-m')) continue;
+
+                    $amt = (float)($ad['amount'] ?? 0);
+                    if ($amt <= 0) continue;
+                    $cashFlag = !empty($ad['cash']);
+                    $addonInMonth += $amt;
+                    if ($cashFlag) $addonCashInMonth += $amt;
+
+                    $addonsInMonthList[] = [
+                        'date' => $adDate->toDateString(),
+                        'amount' => $amt,
+                        'cash' => $cashFlag,
+                    ];
+                }
+            }
+
+            $proratedWeekly = $itWeekly * $factor;
+            $proratedOvertime = (float) ($it->overtime_amount ?? 0) * $factor;
+            $proratedCash = (float) ($it->cash_amount ?? 0) * $factor;
+            $proratedBank = (float) ($it->bank_amount ?? 0) * $factor;
+
+            $grossToAdd = $proratedWeekly + $addonInMonth + $proratedOvertime;
+            $cashToAdd = $proratedCash + $addonCashInMonth;
+            $bankToAdd = max(0, $grossToAdd - $cashToAdd);
+
+            // Prorate the cash for each week if the week is partial within the month
+            $map[$k][$w]['gross'] += $grossToAdd;
+            $map[$k][$w]['cash'] += $cashToAdd;
+            $map[$k][$w]['bank'] += $bankToAdd;
+
+            $map[$k][$w]['weekly'] += $proratedWeekly;
+            $map[$k][$w]['addon_total'] += $addonInMonth;
+            $map[$k][$w]['addon_cash_total'] += $addonCashInMonth;
+
+            $map[$k][$w]['addons'] = array_merge($map[$k][$w]['addons'], $addonsInMonthList);
+        }
     }
+
+    return $map;
+}
+
+
+protected function buildMonthRows(string $month)
+{
+    $start = Carbon::parse($month . '-01')->startOfMonth();
+    $end = $start->copy()->endOfMonth();
+
+    $monthWeeks = $this->getWeeksForMonth($month);
+    $weekMap = $this->buildEmployeeWeekMap($month);
+
+    $rows = collect();
+
+    foreach ($weekMap as $key => $weekData) {
+        list($empId, $type) = explode('|', $key);
+        $emp = Employee::find($empId);
+        if (!$emp) continue;
+
+        $weeklyAmount = 0.0;
+        $addonsTotal = 0.0;
+        $addonsCashTotal = 0.0;
+        $addonsList = [];
+        $cashAmount = 0.0;
+        $grossAmount = 0.0;
+        $bankAmount = 0.0;
+
+        foreach ($weekData as $weekNumber => $data) {
+            // Accumulate weekly amount and addons
+            $weeklyAmount += $data['weekly'] ?? 0;
+            $addonsTotal += $data['addon_total'] ?? 0;
+            $addonsCashTotal += $data['addon_cash_total'] ?? 0;
+            $addonsList = array_merge($addonsList, $data['addons'] ?? []);
+
+            // Get the payroll item for the employee and the corresponding week
+            $payrollItem = PayrollItem::where('employee_id', $empId)
+                ->whereHas('payrollRun', function ($query) use ($month, $weekNumber) {
+                    $query->where('year', (int) $month)
+                          ->where('week_number', $weekNumber);
+                })
+                ->first();
+
+            if ($payrollItem) {
+                // Log payroll item found
+                \Log::debug("Payroll Item Found for Employee {$emp->employee_code} in Week {$weekNumber}: Cash Amount = " . $payrollItem->cash_amount);
+
+                // Get Attendance Data
+                $attendanceData = null;
+                if ($payrollItem->type === 'daily_rate') {
+                    $attendanceData = DailyRateAttendance::where('employee_id', $empId)
+                        ->where('year', $start->year)
+                        ->where('week_number', $weekNumber)
+                        ->first();
+                } else {
+                    $attendanceData = HourlyAttendance::where('employee_id', $empId)
+                        ->where('year', $start->year)
+                        ->where('week_number', $weekNumber)
+                        ->first();
+                }
+
+                // Log the attendance data
+                \Log::debug("Attendance Data for Employee {$emp->employee_code} in Week {$weekNumber}: " . json_encode($attendanceData));
+
+                if ($attendanceData) {
+                    // Get the present map (array of present days)
+                    $presentMap = ($payrollItem->type === 'daily_rate') ? $attendanceData->days_map : $attendanceData->hours_map;
+
+                    // Log the present map to debug
+                    \Log::debug("Present Map for Employee {$emp->employee_code} in Week {$weekNumber}: " . json_encode($presentMap));
+
+                    // If present map is in correct format (array), proceed with calculation
+                    if (is_array($presentMap)) {
+                        // Calculate total present days in the week (count non-zero entries in the present map)
+                        $totalPresentDays = count(array_filter($presentMap));
+                        \Log::debug("Total Present Days in Week {$weekNumber}: {$totalPresentDays}");
+
+                        // Count present days in the current month (November or December)
+                        $presentInCurrentMonth = 0;
+
+                        $weekStart = Carbon::parse("{$start->year}-W{$weekNumber}-1");
+                        $dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+                        for ($i = 0; $i < 7; $i++) {
+                            $date = $weekStart->copy()->addDays($i);
+                            $key = $dayKeys[$i];
+                            if (isset($presentMap[$key]) && $presentMap[$key] > 0 && $date->month == $start->month) {
+                                $presentInCurrentMonth++;
+                            }
+                        }
+
+                        // Prorate the cash for the current month
+                        if ($presentInCurrentMonth > 0 && $totalPresentDays > 0) {
+                            $proratedCash = ($payrollItem->cash_amount / $totalPresentDays) * $presentInCurrentMonth;
+                            $cashAmount += $proratedCash;
+                        }
+                    }
+                }
+
+                // Add the addon cash to the total cash
+                if ($addonsCashTotal > 0) {
+                    $cashAmount += $addonsCashTotal;
+                    \Log::debug("Adding Addon Cash for Employee {$emp->employee_code}: {$addonsCashTotal}");
+                }
+
+                // Add to gross amount and bank amount
+                $grossAmount += $payrollItem->gross_amount ?? 0;
+                $bankAmount += $payrollItem->bank_amount ?? 0;
+            }
+        }
+
+        // Final Calculation
+        $grossAmount = $weeklyAmount + $addonsTotal; // Sum weekly and addons for gross amount
+        $bankAmount = $grossAmount - $cashAmount; // Remaining balance for bank
+
+        \Log::debug("Final Calculation for Employee {$emp->employee_code}: Gross Amount = {$grossAmount}, Cash Amount = {$cashAmount}, Bank Amount = {$bankAmount}");
+
+        $rows->push([
+            'employee' => $emp,
+            'type' => $type,
+            'gross_amount' => $grossAmount,
+            'cash_amount' => $cashAmount,
+            'bank_amount' => $bankAmount,
+            'weekly_amount' => $weeklyAmount,
+            'addons' => $addonsList,
+            'addons_total' => $addonsTotal,
+            'addons_cash_total' => $addonsCashTotal,
+        ]);
+    }
+
+    return $rows;
+}
+
+
 
     public function saveMonth(Request $request)
     {
@@ -461,11 +398,8 @@ class MonthlyPayrollController extends Controller
             'items.*.addons' => 'nullable|array',
             'items.*.addons.*.date' => 'nullable|date',
             'items.*.addons.*.amount' => 'nullable|numeric',
+            'items.*.addons.*.cash' => 'nullable|boolean',
             'items.*.overtime' => 'nullable|numeric',
-            'items.*.transfer_id' => 'nullable|string',
-            'items.*.transfer_date' => 'nullable|date',
-            'items.*.transfer_status' => 'nullable|in:pending,completed,failed',
-            'items.*.note' => 'nullable|string',
         ]);
 
         $month = $data['month'];
@@ -490,48 +424,56 @@ class MonthlyPayrollController extends Controller
             $cash = $row['cash'] ?? 0;
             $bank = $row['bank'] ?? ($gross - $cash);
 
+            $weeklyAmountOrig = (float) ($row['weekly_amount'] ?? 0);
+
+            $addonsOrig = $row['addons'] ?? [];
+            $updatedAddons = [];
+            $totalAddonAmount = 0;
+            $totalAddonCash = 0;
+
+            foreach ($addonsOrig as $ad) {
+                $date = $ad['date'] ?? null;
+                $amt = (float) ($ad['amount'] ?? 0);
+                $cashFlag = isset($ad['cash']) ? (bool) $ad['cash'] : false;
+
+                if ($amt <= 0) continue;
+
+                $updatedAddons[] = ['date' => $date, 'amount' => $amt, 'cash' => $cashFlag];
+                $totalAddonAmount += $amt;
+                if ($cashFlag) {
+                    $totalAddonCash += $amt;
+                }
+            }
+
+            $totalCash = $weeklyAmountOrig + $totalAddonCash;
+            $grossTotal = $weeklyAmountOrig + $totalAddonAmount;
+            $bank = max(0, $grossTotal - $totalCash);
+
             $payload = [
                 'payroll_run_id' => $run->id,
                 'employee_id' => $row['employee_id'],
                 'type' => $row['type'],
-                'total_days' => $row['total_days'] ?? null,
-                'present_days' => $row['present_days'] ?? null,
-                'total_hours' => $row['total_hours'] ?? null,
-                'gross_amount' => $gross,
-                'cash_amount' => $cash,
+                'gross_amount' => $grossTotal,
+                'cash_amount' => $totalCash,
                 'bank_amount' => $bank,
-                'weekly_amount' => $row['weekly_amount'] ?? null,
-                'addons' => $row['addons'] ?? null,
-                'transfer_id' => $row['transfer_id'] ?? null,
-                'transfer_date' => $row['transfer_date'] ?? null,
-                'transfer_status' => $row['transfer_status'] ?? null,
-                'note' => $row['note'] ?? null,
+                'weekly_amount' => $weeklyAmountOrig,
+                'addons' => $updatedAddons,
             ];
 
-            if (($row['type'] ?? '') === 'daily_rate') {
-                $payload['overtime_amount'] = $row['overtime'] ?? 0;
-                $payload['overtime_hours'] = null;
-            } else {
-                $payload['overtime_hours'] = $row['overtime'] ?? 0;
-                $payload['overtime_amount'] = null;
-            }
-
-            PayrollItem::updateOrCreate([
-                'payroll_run_id' => $run->id,
-                'employee_id' => $row['employee_id'],
-            ], $payload);
+            PayrollItem::updateOrCreate(
+                [
+                    'payroll_run_id' => $run->id,
+                    'employee_id' => $row['employee_id'],
+                ],
+                $payload
+            );
         }
 
         return redirect()->route('payroll.monthly.index', ['month' => $month])
             ->with('success', 'Monthly payroll saved');
     }
 
-    protected function setCell($sheet, int $colIndex, int $rowIndex, $value): void
-    {
-        $letter = Coordinate::stringFromColumnIndex($colIndex);
-        $sheet->setCellValue($letter . $rowIndex, $value);
-    }
-
+    // Export to XLSX (monthly)
     public function exportMonthXlsx(Request $request)
     {
         $month = $request->input('month', now()->format('Y-m'));

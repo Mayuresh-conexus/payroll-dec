@@ -15,34 +15,25 @@
                 <button type="submit"
                     class="px-4 py-2 ml-2 rounded-lg bg-slate-900 text-white text-sm font-medium">Load</button>
             </div>
-
             <div class="ml-auto flex items-center">
-
                 @php
                     $weekSet = [];
-
                     foreach ($rows as $row) {
                         preg_match_all('/\d+/', $row['weeks_display'] ?? '', $m);
                         foreach ($m[0] as $w) {
                             $weekSet[(int) $w] = true;
                         }
                     }
-
                     $weeks = array_keys($weekSet);
                     sort($weeks);
-
                     $uniqueWeeksDisplay = collect($weeks)->map(fn($w) => 'wk' . $w)->implode(' ');
                 @endphp
-
-
                 <div class="flex flex-wrap gap-2 items-center">
                     @foreach ($weeks as $w)
-                        <span class="px-3 py-1 font-medium rounded-full text-xs bg-slate-900 text-white">
-                            Week{{ $w }}
-                        </span>
+                        <span
+                            class="px-3 py-1 font-medium rounded-full text-xs bg-slate-900 text-white">Week{{ $w }}</span>
                     @endforeach
                 </div>
-
                 <a href="{{ route('payroll.exportMonthXlsx', ['month' => $month]) }}"
                     class="ml-2 px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50">Export
                     XLSX</a>
@@ -74,30 +65,14 @@
                     </thead>
 
                     <tbody class="divide-y divide-slate-100">
-                        @php
-                            $monthRun = \App\Models\PayrollRun::where('period_type', 'monthly')
-                                ->where('month', $month)
-                                ->first();
-                            $itemsByEmployee = collect();
-                            if ($monthRun && $monthRun->items) {
-                                $itemsByEmployee = $monthRun->items->keyBy('employee_id');
-                            }
-                        @endphp
-
                         @forelse($rows as $index => $row)
                             @php
                                 $emp = $row['employee'];
-                                $pay = $itemsByEmployee[$emp->id] ?? null;
-                                $weeklyAmount = $pay->weekly_amount ?? ($pay->gross_amount ?? null);
-                                $addons = $pay->addons ?? null;
-                                if (is_string($addons)) {
-                                    $addons = json_decode($addons, true);
-                                }
+                                $weeklyAmount = $row['weekly_amount'] ?? 0;
                                 $addonsTotal = 0;
-                                if (is_array($addons)) {
-                                    foreach ($addons as $ad) {
-                                        $addonsTotal += (float) ($ad['amount'] ?? 0);
-                                    }
+                                $addons = $row['addons'] ?? [];
+                                foreach ($addons as $ad) {
+                                    $addonsTotal += (float) ($ad['amount'] ?? 0);
                                 }
                             @endphp
                             <tr class="hover:bg-slate-50/80">
@@ -114,34 +89,21 @@
                                 </td>
 
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">
-                                    {{ $weeklyAmount !== null ? number_format($weeklyAmount, 2) : '-' }}</td>
-                                <td class="px-4 py-3 text-right text-sm">
-                                    @if ($addonsTotal > 0)
-                                        <details class="text-sm">
-                                            <summary class="cursor-pointer">{{ number_format($addonsTotal, 2) }} ▾
-                                            </summary>
-                                            <div class="mt-2 text-xs text-slate-600">
-                                                <ul class="list-disc list-inside">
-                                                    @foreach ($addons as $ad)
-                                                        <li>{{ $ad['date'] ?? 'n/a' }} —
-                                                            {{ number_format((float) ($ad['amount'] ?? 0), 2) }}</li>
-                                                    @endforeach
-                                                </ul>
-                                            </div>
-                                        </details>
-                                    @else
-                                        -
-                                    @endif
+                                    {{ number_format($weeklyAmount, 2) }}
+                                </td>
+                                <td class="px-4 py-3 text-right text-sm text-slate-800">
+                                    {{ number_format($addonsTotal, 2) }}
                                 </td>
 
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">
-                                    {{ number_format($row['gross_amount'], 2) }}</td>
+                                    {{ number_format($row['gross_amount'], 2) }}
+                                </td>
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">
-                                    {{ number_format($row['cash_amount'] ?? 0, 2) }}</td>
+                                    {{ number_format($row['cash_amount'] ?? 0, 2) }}
+                                </td>
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">
-                                    {{ number_format($row['bank_amount'], 2) }}</td>
-
-
+                                    {{ number_format($row['bank_amount'], 2) }}
+                                </td>
 
                                 <td class="px-4 py-3 text-left">
                                     <input type="text" name="items[{{ $index }}][transfer_id]"
@@ -232,33 +194,4 @@
             </div>
         </div>
     </div>
-
-    <script>
-        function monthlyNotes() {
-            return {
-                items: [],
-                show: false,
-                currentIndex: null,
-                currentNote: '',
-                init(notes) {
-                    this.items = Array.isArray(notes) ? notes : [];
-                },
-                open(i) {
-                    this.currentIndex = i;
-                    this.currentNote = this.items[i] ?? '';
-                    this.show = true;
-                },
-                close() {
-                    this.show = false;
-                    this.currentIndex = null;
-                },
-                save() {
-                    if (this.currentIndex !== null) {
-                        this.items[this.currentIndex] = this.currentNote;
-                    }
-                    this.close();
-                }
-            }
-        }
-    </script>
 @endsection

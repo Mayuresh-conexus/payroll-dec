@@ -313,27 +313,93 @@
                     <table class="text-sm w-full">
                         <tbody class="divide-y">
                             <tr>
-                                <td class="py-2 text-slate-600">Total Gross</td>
+                                <td class="py-2 text-slate-600 flex items-center relative group">
+                                    <span>Total Gross</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg"
+                                        class="h-4 w-4 ml-2 text-slate-500 cursor-pointer" viewBox="0 0 24 24"
+                                        fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd"
+                                            d="M12 22C6.48 22 2 17.52 2 12S6.48 2 12 2s10 4.48 10 10-4.48 10-10 10zm0-18C7.03 4 4 7.03 4 12s3.03 8 8 8 8-3.03 8-8-3.03-8-8-8zm-1 13h2v-2h-2v2zm0-4h2V7h-2v6z" />
+                                    </svg>
+                                    <div
+                                        class="absolute left-0 mt-2 bg-white text-xs text-slate-500 p-2 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                                        The total gross amount before any deductions or additions.
+                                    </div>
+                                </td>
                                 <td class="py-2 text-right font-semibold" x-text="formatMoney(totals.gross)"></td>
                             </tr>
                             <tr>
-                                <td class="py-2 text-slate-600">Weekly Cash (cash_amount)</td>
+                                <td class="py-2 text-slate-600 flex items-center relative group">
+                                    <span>Weekly Cash</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg"
+                                        class="h-4 w-4 ml-2 text-slate-500 cursor-pointer" viewBox="0 0 24 24"
+                                        fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd"
+                                            d="M12 22C6.48 22 2 17.52 2 12S6.48 2 12 2s10 4.48 10 10-4.48 10-10 10zm0-18C7.03 4 4 7.03 4 12s3.03 8 8 8 8-3.03 8-8-3.03-8-8-8zm-1 13h2v-2h-2v2zm0-4h2V7h-2v6z" />
+                                    </svg>
+                                    <div
+                                        class="absolute left-0 mt-2 bg-white text-xs text-slate-500 p-2 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                                        Total of cash given to the employee in the current week.
+                                    </div>
+                                </td>
                                 <td class="py-2 text-right font-semibold" x-text="formatMoney(totals.weeklyCash)"></td>
                             </tr>
                             <tr>
-                                <td class="py-2 text-slate-600">Addon Cash (addons cash true)</td>
+                                <td class="py-2 text-slate-600 flex items-center relative group">
+                                    <span>Addon Cash</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg"
+                                        class="h-4 w-4 ml-2 text-slate-500 cursor-pointer" viewBox="0 0 24 24"
+                                        fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd"
+                                            d="M12 22C6.48 22 2 17.52 2 12S6.48 2 12 2s10 4.48 10 10-4.48 10-10 10zm0-18C7.03 4 4 7.03 4 12s3.03 8 8 8 8-3.03 8-8-3.03-8-8-8zm-1 13h2v-2h-2v2zm0-4h2V7h-2v6z" />
+                                    </svg>
+                                    <div
+                                        class="absolute left-0 mt-2 bg-white text-xs text-slate-500 p-2 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                                        Cash given to the employee for overtime or additional work beyond regular hours.
+                                    </div>
+                                </td>
                                 <td class="py-2 text-right font-semibold" x-text="formatMoney(totals.addonCash)"></td>
                             </tr>
                             <tr>
-                                <td class="py-2 text-slate-600">Total Cash</td>
+                                <td class="py-2 text-slate-600 flex items-center relative group">
+                                    <span>Total Cash</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg"
+                                        class="h-4 w-4 ml-2 text-slate-500 cursor-pointer" viewBox="0 0 24 24"
+                                        fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd"
+                                            d="M12 22C6.48 22 2 17.52 2 12S6.48 2 12 2s10 4.48 10 10-4.48 10-10 10zm0-18C7.03 4 4 7.03 4 12s3.03 8 8 8 8-3.03 8-8-3.03-8-8-8zm-1 13h2v-2h-2v2zm0-4h2V7h-2v6z" />
+                                    </svg>
+                                    <div
+                                        class="absolute left-0 mt-2 bg-white text-xs text-slate-500 p-2 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                                        The total amount of cash provided to the employee, including weekly cash and addon
+                                        cash.
+                                    </div>
+                                </td>
                                 <td class="py-2 text-right font-semibold" x-text="formatMoney(totals.cash)"></td>
                             </tr>
                             <tr>
-                                <td class="py-2 text-slate-600">Total Bank (gross minus total cash)</td>
+                                <td class="py-2 text-slate-600 flex items-center relative group">
+                                    <span>Total Bank</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg"
+                                        class="h-4 w-4 ml-2 text-slate-500 cursor-pointer" viewBox="0 0 24 24"
+                                        fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd"
+                                            d="M12 22C6.48 22 2 17.52 2 12S6.48 2 12 2s10 4.48 10 10-4.48 10-10 10zm0-18C7.03 4 4 7.03 4 12s3.03 8 8 8 8-3.03 8-8-3.03-8-8-8zm-1 13h2v-2h-2v2zm0-4h2V7h-2v6z" />
+                                    </svg>
+
+                                    <div
+                                        class="absolute left-0 mt-2 bg-white text-xs text-slate-500 p-2 rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                                        The amount remaining after deducting the total cash from the gross total.
+                                    </div>
+                                </td>
                                 <td class="py-2 text-right font-semibold" x-text="formatMoney(totals.bank)"></td>
                             </tr>
                         </tbody>
                     </table>
+
+
+
+
                 </div>
 
                 <div class="px-4 py-3 border-t border-slate-100 flex justify-end">

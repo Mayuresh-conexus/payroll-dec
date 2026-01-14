@@ -259,13 +259,25 @@ protected function buildMonthRows(string $month)
     $start = Carbon::parse($month . '-01')->startOfMonth();
     $end = $start->copy()->endOfMonth();
 
-    $monthWeeks = $this->getWeeksForMonth($month);
     $weekMap = $this->buildEmployeeWeekMap($month);
+
+    // Load saved monthly run + its items (if already saved)
+    $monthlyRun = PayrollRun::where('period_type', 'monthly')
+        ->where('month', $month)
+        ->first();
+
+    $savedMonthlyItems = collect();
+    if ($monthlyRun) {
+        $savedMonthlyItems = PayrollItem::where('payroll_run_id', $monthlyRun->id)->get()
+            ->keyBy(function ($it) {
+                return $it->employee_id . '|' . $it->type;
+            });
+    }
 
     $rows = collect();
 
     foreach ($weekMap as $key => $weekData) {
-        list($empId, $type) = explode('|', $key);
+        [$empId, $type] = explode('|', $key);
         $emp = Employee::find($empId);
         if (!$emp) continue;
 
@@ -274,97 +286,90 @@ protected function buildMonthRows(string $month)
         $addonsCashTotal = 0.0;
         $addonsList = [];
         $cashAmount = 0.0;
-        $grossAmount = 0.0;
-        $bankAmount = 0.0;
 
         foreach ($weekData as $weekNumber => $data) {
-            // Accumulate weekly amount and addons
-            $weeklyAmount += $data['weekly'] ?? 0;
-            $addonsTotal += $data['addon_total'] ?? 0;
-            $addonsCashTotal += $data['addon_cash_total'] ?? 0;
+            // weekly + addons already prorated by month in buildEmployeeWeekMap
+            $weeklyAmount += (float) ($data['weekly'] ?? 0);
+            $addonsTotal += (float) ($data['addon_total'] ?? 0);
+            $addonsCashTotal += (float) ($data['addon_cash_total'] ?? 0);
             $addonsList = array_merge($addonsList, $data['addons'] ?? []);
 
-            // Get the payroll item for the employee and the corresponding week
+            // Get weekly payroll item (weekly run) to pick cash_amount source
             $payrollItem = PayrollItem::where('employee_id', $empId)
-                ->whereHas('payrollRun', function ($query) use ($month, $weekNumber) {
-                    $query->where('year', (int) $month)
-                          ->where('week_number', $weekNumber);
+                ->where('type', $type)
+                ->whereHas('payrollRun', function ($q) use ($start, $weekNumber) {
+                    $q->where('year', (int) $start->year)
+                      ->where('week_number', (int) $weekNumber)
+                      ->where(function ($qq) {
+                          $qq->where('period_type', 'weekly')->orWhereNull('period_type');
+                      });
                 })
                 ->first();
 
-            if ($payrollItem) {
-                // Log payroll item found
-                \Log::debug("Payroll Item Found for Employee {$emp->employee_code} in Week {$weekNumber}: Cash Amount = " . $payrollItem->cash_amount);
+            if (!$payrollItem) {
+                continue;
+            }
 
-                // Get Attendance Data
-                $attendanceData = null;
-                if ($payrollItem->type === 'daily_rate') {
-                    $attendanceData = DailyRateAttendance::where('employee_id', $empId)
-                        ->where('year', $start->year)
-                        ->where('week_number', $weekNumber)
-                        ->first();
-                } else {
-                    $attendanceData = HourlyAttendance::where('employee_id', $empId)
-                        ->where('year', $start->year)
-                        ->where('week_number', $weekNumber)
-                        ->first();
+            // Attendance map for this week
+            $attendanceData = null;
+            if ($type === 'daily_rate') {
+                $attendanceData = DailyRateAttendance::where('employee_id', $empId)
+                    ->where('year', (int) $start->year)
+                    ->where('week_number', (int) $weekNumber)
+                    ->first();
+                $presentMap = $attendanceData?->days_map;
+            } else {
+                $attendanceData = HourlyAttendance::where('employee_id', $empId)
+                    ->where('year', (int) $start->year)
+                    ->where('week_number', (int) $weekNumber)
+                    ->first();
+                $presentMap = $attendanceData?->hours_map;
+            }
+
+            if (is_string($presentMap)) {
+                $presentMap = json_decode($presentMap, true);
+            }
+            if (!is_array($presentMap)) {
+                $presentMap = [];
+            }
+
+            // Total present days in week
+            $totalPresentDays = 0;
+            foreach ($presentMap as $v) {
+                if ((float) $v > 0) $totalPresentDays++;
+            }
+            if ($totalPresentDays <= 0) {
+                continue;
+            }
+
+            // Present days that fall inside current month only
+            $presentInCurrentMonth = 0;
+            $weekStart = Carbon::create()->setISODate((int)$start->year, (int)$weekNumber, 1)->startOfDay();
+            $dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
+
+            for ($i = 0; $i < 7; $i++) {
+                $date = $weekStart->copy()->addDays($i);
+                $kDay = $dayKeys[$i];
+
+                $isPresent = !empty($presentMap[$kDay]) && (float)$presentMap[$kDay] > 0;
+                if ($isPresent && $date->month === $start->month) {
+                    $presentInCurrentMonth++;
                 }
+            }
 
-                // Log the attendance data
-                \Log::debug("Attendance Data for Employee {$emp->employee_code} in Week {$weekNumber}: " . json_encode($attendanceData));
-
-                if ($attendanceData) {
-                    // Get the present map (array of present days)
-                    $presentMap = ($payrollItem->type === 'daily_rate') ? $attendanceData->days_map : $attendanceData->hours_map;
-
-                    // Log the present map to debug
-                    \Log::debug("Present Map for Employee {$emp->employee_code} in Week {$weekNumber}: " . json_encode($presentMap));
-
-                    // If present map is in correct format (array), proceed with calculation
-                    if (is_array($presentMap)) {
-                        // Calculate total present days in the week (count non-zero entries in the present map)
-                        $totalPresentDays = count(array_filter($presentMap));
-                        \Log::debug("Total Present Days in Week {$weekNumber}: {$totalPresentDays}");
-
-                        // Count present days in the current month (November or December)
-                        $presentInCurrentMonth = 0;
-
-                        $weekStart = Carbon::parse("{$start->year}-W{$weekNumber}-1");
-                        $dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-
-                        for ($i = 0; $i < 7; $i++) {
-                            $date = $weekStart->copy()->addDays($i);
-                            $key = $dayKeys[$i];
-                            if (isset($presentMap[$key]) && $presentMap[$key] > 0 && $date->month == $start->month) {
-                                $presentInCurrentMonth++;
-                            }
-                        }
-
-                        // Prorate the cash for the current month
-                        if ($presentInCurrentMonth > 0 && $totalPresentDays > 0) {
-                            $proratedCash = ($payrollItem->cash_amount / $totalPresentDays) * $presentInCurrentMonth;
-                            $cashAmount += $proratedCash;
-                        }
-                    }
-                }
-
-                // Add the addon cash to the total cash
-                if ($addonsCashTotal > 0) {
-                    $cashAmount += $addonsCashTotal;
-                    \Log::debug("Adding Addon Cash for Employee {$emp->employee_code}: {$addonsCashTotal}");
-                }
-
-                // Add to gross amount and bank amount
-                $grossAmount += $payrollItem->gross_amount ?? 0;
-                $bankAmount += $payrollItem->bank_amount ?? 0;
+            if ($presentInCurrentMonth > 0) {
+                $cashAmount += ((float)$payrollItem->cash_amount / $totalPresentDays) * $presentInCurrentMonth;
             }
         }
 
-        // Final Calculation
-        $grossAmount = $weeklyAmount + $addonsTotal; // Sum weekly and addons for gross amount
-        $bankAmount = $grossAmount - $cashAmount; // Remaining balance for bank
+        // Add addon cash that is marked cash=true (already month filtered in buildEmployeeWeekMap)
+        $cashAmount += (float) $addonsCashTotal;
 
-        \Log::debug("Final Calculation for Employee {$emp->employee_code}: Gross Amount = {$grossAmount}, Cash Amount = {$cashAmount}, Bank Amount = {$bankAmount}");
+        $grossAmount = $weeklyAmount + $addonsTotal;
+        $bankAmount = $grossAmount - $cashAmount;
+
+        // Merge saved monthly fields if present
+        $saved = $savedMonthlyItems->get($empId . '|' . $type);
 
         $rows->push([
             'employee' => $emp,
@@ -376,6 +381,12 @@ protected function buildMonthRows(string $month)
             'addons' => $addonsList,
             'addons_total' => $addonsTotal,
             'addons_cash_total' => $addonsCashTotal,
+
+            // These are what your Blade expects for showing existing values
+            'transfer_id' => $saved?->transfer_id,
+            'transfer_date' => $saved?->transfer_date,
+            'transfer_status' => $saved?->transfer_status ?? 'pending',
+            'note' => $saved?->note,
         ]);
     }
 
@@ -384,7 +395,8 @@ protected function buildMonthRows(string $month)
 
 
 
-    public function saveMonth(Request $request)
+
+     public function saveMonth(Request $request)
     {
         $data = $request->validate([
             'month' => 'required|date_format:Y-m',
@@ -394,13 +406,13 @@ protected function buildMonthRows(string $month)
             'items.*.gross' => 'required|numeric',
             'items.*.cash' => 'nullable|numeric',
             'items.*.bank' => 'nullable|numeric',
-            'items.*.weekly_amount' => 'nullable|numeric',
-            'items.*.addons' => 'nullable|array',
-            'items.*.addons.*.date' => 'nullable|date',
-            'items.*.addons.*.amount' => 'nullable|numeric',
-            'items.*.addons.*.cash' => 'nullable|boolean',
             'items.*.overtime' => 'nullable|numeric',
+            'items.*.transfer_id' => 'nullable|string',
+            'items.*.transfer_date' => 'nullable|date',
+            'items.*.transfer_status' => 'nullable|in:pending,completed,failed',
+            'items.*.note' => 'nullable|string',
         ]);
+        \Log::debug('Request Data:', $data);
 
         $month = $data['month'];
         $monthFormatted = str_replace('-', '', $month);
@@ -424,226 +436,226 @@ protected function buildMonthRows(string $month)
             $cash = $row['cash'] ?? 0;
             $bank = $row['bank'] ?? ($gross - $cash);
 
-            $weeklyAmountOrig = (float) ($row['weekly_amount'] ?? 0);
-
-            $addonsOrig = $row['addons'] ?? [];
-            $updatedAddons = [];
-            $totalAddonAmount = 0;
-            $totalAddonCash = 0;
-
-            foreach ($addonsOrig as $ad) {
-                $date = $ad['date'] ?? null;
-                $amt = (float) ($ad['amount'] ?? 0);
-                $cashFlag = isset($ad['cash']) ? (bool) $ad['cash'] : false;
-
-                if ($amt <= 0) continue;
-
-                $updatedAddons[] = ['date' => $date, 'amount' => $amt, 'cash' => $cashFlag];
-                $totalAddonAmount += $amt;
-                if ($cashFlag) {
-                    $totalAddonCash += $amt;
-                }
-            }
-
-            $totalCash = $weeklyAmountOrig + $totalAddonCash;
-            $grossTotal = $weeklyAmountOrig + $totalAddonAmount;
-            $bank = max(0, $grossTotal - $totalCash);
-
             $payload = [
                 'payroll_run_id' => $run->id,
                 'employee_id' => $row['employee_id'],
                 'type' => $row['type'],
-                'gross_amount' => $grossTotal,
-                'cash_amount' => $totalCash,
+                'total_days' => $row['total_days'] ?? null,
+                'present_days' => $row['present_days'] ?? null,
+                'total_hours' => $row['total_hours'] ?? null,
+                'gross_amount' => $gross,
+                'cash_amount' => $cash,
                 'bank_amount' => $bank,
-                'weekly_amount' => $weeklyAmountOrig,
-                'addons' => $updatedAddons,
+                'transfer_id' => $row['transfer_id'] ?? null,
+                'transfer_date' => $row['transfer_date'] ?? null,
+                'transfer_status' => $row['transfer_status'] ?? null,
+                'note' => $row['note'] ?? null,
             ];
 
-            PayrollItem::updateOrCreate(
-                [
-                    'payroll_run_id' => $run->id,
-                    'employee_id' => $row['employee_id'],
-                ],
-                $payload
-            );
+            if (($row['type'] ?? '') === 'daily_rate') {
+                $payload['overtime_amount'] = $row['overtime'] ?? 0;
+                $payload['overtime_hours'] = null;
+            } else {
+                $payload['overtime_hours'] = $row['overtime'] ?? 0;
+                $payload['overtime_amount'] = null;
+            }
+
+            PayrollItem::updateOrCreate([
+                'payroll_run_id' => $run->id,
+                'employee_id' => $row['employee_id'],
+            ], $payload);
         }
 
         return redirect()->route('payroll.monthly.index', ['month' => $month])
             ->with('success', 'Monthly payroll saved');
     }
 
-    // Export to XLSX (monthly)
-    public function exportMonthXlsx(Request $request)
+   public function exportMonthXlsx(Request $request)
+{
+    $month = $request->input('month', now()->format('Y-m'));
+    $rows = $this->buildMonthRows($month);
+
+    $spreadsheet = new Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('Monthly Payroll');
+
+    // Palette (Colors)
+    $navy = '0F172A';
+    $slate = '334155';
+    $lighter = 'F8FAFC';
+    $white = 'FFFFFF';
+    $border = 'E2E8F0';
+
+    // Headers (updated to reflect your latest changes)
+    $headers = [
+        'Employee Code',
+        'Employee Name',
+        'Type',
+        'Weeks',
+        'Gross',
+        'Cash',
+        'Bank',
+        'Note',
+        'Transfer ID',
+        'Transfer Date',
+        'Transfer Status',
+    ];
+    $lastColLetter = Coordinate::stringFromColumnIndex(count($headers));
+
+    // Title
+    $sheet->setCellValue('A1', 'MONTHLY PAYROLL ' . $month);
+    $sheet->mergeCells("A1:{$lastColLetter}1");
+    $sheet->getRowDimension(1)->setRowHeight(26);
+    $sheet->getStyle("A1:{$lastColLetter}1")->applyFromArray([
+        'font' => ['bold' => true, 'size' => 14, 'color' => ['rgb' => $white]],
+        'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+        'fill' => ['fillType' => Fill::FILL_SOLID, 'color' => ['rgb' => $navy]],
+    ]);
+
+    // Header row (row 3)
+    $rowHeader = 3;
+    foreach ($headers as $i => $h) {
+        $this->setCell($sheet, $i + 1, $rowHeader, $h);
+    }
+
+    $sheet->getRowDimension(3)->setRowHeight(20);
+    $sheet->getStyle("A3:{$lastColLetter}3")->applyFromArray([
+        'font' => ['bold' => true, 'color' => ['rgb' => $white]],
+        'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+        'fill' => ['fillType' => Fill::FILL_SOLID, 'color' => ['rgb' => $slate]],
+        'borders' => [
+            'allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => $border]],
+        ],
+    ]);
+
+    $sheet->freezePane('A4');
+    $sheet->setAutoFilter("A3:{$lastColLetter}3");
+
+    // Column Widths
+    $sheet->getColumnDimension('B')->setWidth(22);
+    $sheet->getColumnDimension('D')->setWidth(18);
+    $sheet->getColumnDimension('H')->setWidth(30);
+    $sheet->getStyle('H:H')->getAlignment()->setWrapText(true);
+
+    // Data Rows
+    $rowIndex = 4;
+    foreach ($rows as $r) {
+        $emp = $r['employee'];
+
+        // Set employee data
+        $this->setCell($sheet, 1, $rowIndex, $emp->employee_code);
+        $this->setCell($sheet, 2, $rowIndex, $emp->name);
+        $this->setCell($sheet, 3, $rowIndex, $r['type'] === 'daily_rate' ? 'Daily' : 'Hourly');
+        $this->setCell($sheet, 4, $rowIndex, $r['weeks_display'] ?? ''); // Weeks display, if relevant
+
+        // Set financial data
+        $this->setCell($sheet, 5, $rowIndex, (float) ($r['gross_amount'] ?? 0));
+        $this->setCell($sheet, 6, $rowIndex, (float) ($r['cash_amount'] ?? 0));
+        $this->setCell($sheet, 7, $rowIndex, (float) ($r['bank_amount'] ?? 0));
+
+        // Set additional data: note, transfer ID, date, status
+        $this->setCell($sheet, 8, $rowIndex, $r['note'] ?? '');
+        $this->setCell($sheet, 9, $rowIndex, $r['transfer_id'] ?? '');
+
+        // Transfer date (formatted for Excel)
+        if (!empty($r['transfer_date'])) {
+            try {
+                $dt = Carbon::parse($r['transfer_date']);
+                $this->setCell($sheet, 10, $rowIndex, ExcelDate::PHPToExcel($dt->toDateTime()));
+                $sheet->getStyle("J{$rowIndex}")->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+            } catch (\Throwable $e) {
+                $this->setCell($sheet, 10, $rowIndex, (string) $r['transfer_date']);
+            }
+        } else {
+            $this->setCell($sheet, 10, $rowIndex, '');
+        }
+
+        // Transfer status (pending, completed, failed)
+        $this->setCell($sheet, 11, $rowIndex, $r['transfer_status'] ?? '');
+
+        // Move to the next row
+        $rowIndex++;
+    }
+
+    // Last Row calculation
+    $lastRow = max(4, $rowIndex - 1);
+    $dataRange = "A4:{$lastColLetter}{$lastRow}";
+
+    $sheet->getStyle($dataRange)->applyFromArray([
+        'alignment' => ['vertical' => Alignment::VERTICAL_CENTER],
+        'borders' => [
+            'allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => $border]],
+        ],
+    ]);
+
+    // Zebra Striping (alternating row color)
+    for ($r = 4; $r <= $lastRow; $r++) {
+        if (($r % 2) === 0) {
+            $sheet->getStyle("A{$r}:{$lastColLetter}{$r}")
+                ->getFill()
+                ->setFillType(Fill::FILL_SOLID)
+                ->getStartColor()->setRGB($lighter);
+        }
+    }
+
+    // Money Format for columns E, F, G (Gross, Cash, Bank)
+    $sheet->getStyle("E4:G{$lastRow}")
+        ->getNumberFormat()
+        ->setFormatCode(NumberFormat::FORMAT_NUMBER_00);
+
+    // Align money values to the right
+    $sheet->getStyle("E4:G{$lastRow}")
+        ->getAlignment()
+        ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+
+    // Conditional formatting for transfer status
+    $statusRange = "K4:K{$lastRow}";
+
+    // Pending Status Style
+    $condPending = new Conditional();
+    $condPending->setConditionType(Conditional::CONDITION_CONTAINSTEXT);
+    $condPending->setOperatorType(Conditional::OPERATOR_CONTAINSTEXT);
+    $condPending->setText('pending');
+    $condPending->getStyle()->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FEF3C7');
+    $condPending->getStyle()->getFont()->getColor()->setRGB('92400E');
+
+    // Completed Status Style
+    $condCompleted = new Conditional();
+    $condCompleted->setConditionType(Conditional::CONDITION_CONTAINSTEXT);
+    $condCompleted->setOperatorType(Conditional::OPERATOR_CONTAINSTEXT);
+    $condCompleted->setText('completed');
+    $condCompleted->getStyle()->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DCFCE7');
+    $condCompleted->getStyle()->getFont()->getColor()->setRGB('166534');
+
+    // Failed Status Style
+    $condFailed = new Conditional();
+    $condFailed->setConditionType(Conditional::CONDITION_CONTAINSTEXT);
+    $condFailed->setOperatorType(Conditional::OPERATOR_CONTAINSTEXT);
+    $condFailed->setText('failed');
+    $condFailed->getStyle()->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FEE2E2');
+    $condFailed->getStyle()->getFont()->getColor()->setRGB('991B1B');
+
+    $sheet->getStyle($statusRange)->setConditionalStyles([$condPending, $condCompleted, $condFailed]);
+
+    // Autosize columns A to K
+    foreach (range('A', 'K') as $col) {
+        if (in_array($col, ['B', 'D', 'H'], true)) continue;
+        $sheet->getColumnDimension($col)->setAutoSize(true);
+    }
+
+    // Export filename
+    $fileName = "payroll_month_{$month}.xlsx";
+    $writer = new Xlsx($spreadsheet);
+
+    return response()->streamDownload(function () use ($writer) {
+        $writer->save('php://output');
+    }, $fileName, [
+        'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ]);
+}
+    protected function setCell($sheet, int $colIndex, int $rowIndex, $value)
     {
-        $month = $request->input('month', now()->format('Y-m'));
-        $rows = $this->buildMonthRows($month);
-
-        $spreadsheet = new Spreadsheet();
-        $sheet = $spreadsheet->getActiveSheet();
-        $sheet->setTitle('Monthly Payroll');
-
-        // Palette
-        $navy = '0F172A';
-        $slate = '334155';
-        $lighter = 'F8FAFC';
-        $white = 'FFFFFF';
-        $border = 'E2E8F0';
-
-        // Headers (fixed, using Weeks column)
-        $headers = [
-            'Employee Code',
-            'Employee Name',
-            'Type',
-            'Weeks',
-            'Gross',
-            'Cash',
-            'Bank',
-            'Note',
-            'Transfer ID',
-            'Transfer Date',
-            'Transfer Status',
-        ];
-        $lastColLetter = Coordinate::stringFromColumnIndex(count($headers));
-
-        // Title
-        $sheet->setCellValue('A1', 'MONTHLY PAYROLL  ' . $month);
-        $sheet->mergeCells("A1:{$lastColLetter}1");
-        $sheet->getRowDimension(1)->setRowHeight(26);
-        $sheet->getStyle("A1:{$lastColLetter}1")->applyFromArray([
-            'font' => ['bold' => true, 'size' => 14, 'color' => ['rgb' => $white]],
-            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
-            'fill' => ['fillType' => Fill::FILL_SOLID, 'color' => ['rgb' => $navy]],
-        ]);
-
-        // Header row (row 3)
-        $rowHeader = 3;
-        foreach ($headers as $i => $h) {
-            $this->setCell($sheet, $i + 1, $rowHeader, $h);
-        }
-
-        $sheet->getRowDimension(3)->setRowHeight(20);
-        $sheet->getStyle("A3:{$lastColLetter}3")->applyFromArray([
-            'font' => ['bold' => true, 'color' => ['rgb' => $white]],
-            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
-            'fill' => ['fillType' => Fill::FILL_SOLID, 'color' => ['rgb' => $slate]],
-            'borders' => [
-                'allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => $border]],
-            ],
-        ]);
-
-        $sheet->freezePane('A4');
-        $sheet->setAutoFilter("A3:{$lastColLetter}3");
-
-        // Widths
-        $sheet->getColumnDimension('B')->setWidth(22);
-        $sheet->getColumnDimension('D')->setWidth(18);
-        $sheet->getColumnDimension('H')->setWidth(30);
-        $sheet->getStyle('H:H')->getAlignment()->setWrapText(true);
-
-        // Data
-        $rowIndex = 4;
-        foreach ($rows as $r) {
-            $emp = $r['employee'];
-
-            $this->setCell($sheet, 1, $rowIndex, $emp->employee_code);
-            $this->setCell($sheet, 2, $rowIndex, $emp->name);
-            $this->setCell($sheet, 3, $rowIndex, $r['type'] === 'daily_rate' ? 'Daily' : 'Hourly');
-            $this->setCell($sheet, 4, $rowIndex, $r['weeks_display'] ?? '');
-
-            $this->setCell($sheet, 5, $rowIndex, (float) ($r['gross_amount'] ?? 0));
-            $this->setCell($sheet, 6, $rowIndex, (float) ($r['cash_amount'] ?? 0));
-            $this->setCell($sheet, 7, $rowIndex, (float) ($r['bank_amount'] ?? 0));
-
-            $this->setCell($sheet, 8, $rowIndex, $r['note'] ?? '');
-            $this->setCell($sheet, 9, $rowIndex, $r['transfer_id'] ?? '');
-
-            // Transfer date in column 10 (J)
-            if (!empty($r['transfer_date'])) {
-                try {
-                    $dt = Carbon::parse($r['transfer_date']);
-                    $this->setCell($sheet, 10, $rowIndex, ExcelDate::PHPToExcel($dt->toDateTime()));
-                    $sheet->getStyle("J{$rowIndex}")->getNumberFormat()->setFormatCode('yyyy-mm-dd');
-                } catch (\Throwable $e) {
-                    $this->setCell($sheet, 10, $rowIndex, (string) $r['transfer_date']);
-                }
-            } else {
-                $this->setCell($sheet, 10, $rowIndex, '');
-            }
-
-            $this->setCell($sheet, 11, $rowIndex, $r['transfer_status'] ?? '');
-
-            $rowIndex++;
-        }
-
-        $lastRow = max(4, $rowIndex - 1);
-        $dataRange = "A4:{$lastColLetter}{$lastRow}";
-
-        $sheet->getStyle($dataRange)->applyFromArray([
-            'alignment' => ['vertical' => Alignment::VERTICAL_CENTER],
-            'borders' => [
-                'allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => $border]],
-            ],
-        ]);
-
-        // Zebra
-        for ($r = 4; $r <= $lastRow; $r++) {
-            if (($r % 2) === 0) {
-                $sheet->getStyle("A{$r}:{$lastColLetter}{$r}")
-                    ->getFill()
-                    ->setFillType(Fill::FILL_SOLID)
-                    ->getStartColor()->setRGB($lighter);
-            }
-        }
-
-        // Money formats (E, F, G)
-        $sheet->getStyle("E4:G{$lastRow}")
-            ->getNumberFormat()
-            ->setFormatCode(NumberFormat::FORMAT_NUMBER_00);
-
-        $sheet->getStyle("E4:G{$lastRow}")
-            ->getAlignment()
-            ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-
-        // Conditional formatting for status (K)
-        $statusRange = "K4:K{$lastRow}";
-
-        $condPending = new Conditional();
-        $condPending->setConditionType(Conditional::CONDITION_CONTAINSTEXT);
-        $condPending->setOperatorType(Conditional::OPERATOR_CONTAINSTEXT);
-        $condPending->setText('pending');
-        $condPending->getStyle()->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FEF3C7');
-        $condPending->getStyle()->getFont()->getColor()->setRGB('92400E');
-
-        $condCompleted = new Conditional();
-        $condCompleted->setConditionType(Conditional::CONDITION_CONTAINSTEXT);
-        $condCompleted->setOperatorType(Conditional::OPERATOR_CONTAINSTEXT);
-        $condCompleted->setText('completed');
-        $condCompleted->getStyle()->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DCFCE7');
-        $condCompleted->getStyle()->getFont()->getColor()->setRGB('166534');
-
-        $condFailed = new Conditional();
-        $condFailed->setConditionType(Conditional::CONDITION_CONTAINSTEXT);
-        $condFailed->setOperatorType(Conditional::OPERATOR_CONTAINSTEXT);
-        $condFailed->setText('failed');
-        $condFailed->getStyle()->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FEE2E2');
-        $condFailed->getStyle()->getFont()->getColor()->setRGB('991B1B');
-
-        $sheet->getStyle($statusRange)->setConditionalStyles([$condPending, $condCompleted, $condFailed]);
-
-        // Autosize
-        foreach (range('A', 'K') as $col) {
-            if (in_array($col, ['B', 'D', 'H'], true)) continue;
-            $sheet->getColumnDimension($col)->setAutoSize(true);
-        }
-
-        $fileName = "payroll_month_{$month}.xlsx";
-        $writer = new Xlsx($spreadsheet);
-
-        return response()->streamDownload(function () use ($writer) {
-            $writer->save('php://output');
-        }, $fileName, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ]);
+        $colLetter = Coordinate::stringFromColumnIndex($colIndex);
+        $sheet->setCellValue("{$colLetter}{$rowIndex}", $value);
     }
 }

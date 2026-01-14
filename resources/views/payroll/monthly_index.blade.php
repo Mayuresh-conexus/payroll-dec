@@ -44,11 +44,11 @@
             class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             @csrf
             <input type="hidden" name="month" value="{{ $month }}">
-
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm">
                     <thead class="bg-slate-50 text-slate-500 uppercase text-xs font-semibold">
                         <tr>
+
                             <th class="px-4 py-3 text-left">Code</th>
                             <th class="px-4 py-3 text-left">Name</th>
                             <th class="px-4 py-3 text-center">Type</th>
@@ -63,7 +63,6 @@
                             <th class="px-4 py-3 text-left">Status</th>
                         </tr>
                     </thead>
-
                     <tbody class="divide-y divide-slate-100">
                         @forelse($rows as $index => $row)
                             @php
@@ -110,13 +109,15 @@
                                         value="{{ $row['transfer_id'] ?? '' }}"
                                         class="rounded-md border border-slate-200 px-2 py-1 text-sm">
                                 </td>
-
                                 <td class="px-4 py-3 text-left">
                                     <button type="button" @click="open({{ $index }})"
                                         class="px-3 py-1 rounded-md bg-slate-100 border text-sm">Add Note</button>
+                                    <!-- Hidden input to bind the note, x-model will handle the binding -->
                                     <input type="hidden" name="items[{{ $index }}][note]"
                                         x-model="items[{{ $index }}]">
                                 </td>
+
+
 
                                 <td class="px-4 py-3 text-left">
                                     <input type="date" name="items[{{ $index }}][transfer_date]"
@@ -195,3 +196,42 @@
         </div>
     </div>
 @endsection
+
+<script>
+    function monthlyNotes() {
+        return {
+            show: false,
+            currentIndex: null,
+            currentNote: '',
+
+            // Initialize notes for each employee row
+            init(notes) {
+                this.items = notes;
+            },
+
+            // Open the modal and set the current note
+            open(index) {
+                this.currentIndex = index;
+                this.currentNote = this.items[index]; // Bind the note value for this employee
+                this.show = true;
+            },
+
+            // Close the modal
+            close() {
+                this.show = false;
+            },
+
+            // Save the note (update the model and the corresponding hidden input)
+            save() {
+                // Update the note for the employee in the Alpine.js model (items array)
+                this.items[this.currentIndex] = this.currentNote;
+
+                // Ensure the note gets updated in the hidden input for form submission
+                document.querySelector(`input[name="items[${this.currentIndex}][note]"]`).value = this.currentNote;
+
+                // Close the modal
+                this.close();
+            }
+        }
+    }
+</script>

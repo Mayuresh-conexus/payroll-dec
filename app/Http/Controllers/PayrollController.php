@@ -843,33 +843,36 @@ $sheet->getStyle("K{$rowIndex}:P{$rowIndex}")
      * using IN / OFF like we did earlier
      */
     public function weeklyReport(Request $request)
-    {
-        $year = (int) $request->input('year', now()->year);
-        $week = (int) $request->input('week', now()->weekOfYear);
+{
+    $year = (int) $request->input('year', now()->year);
+    $week = (int) $request->input('week', now()->weekOfYear);
 
-        $employees = Employee::where('type', 'daily_rate')
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get();
+    // Fetch both daily_rate and hourly employees
+    $employees = Employee::whereIn('type', ['daily_rate', 'hourly']) // Fetch both daily_rate and hourly employees
+        ->where('is_active', true)
+        ->orderBy('name')
+        ->get();
 
-        $attendance = DailyRateAttendance::where('year', $year)
-            ->where('week_number', $week)
-            ->get()
-            ->keyBy('employee_id');
+    // Fetch attendance data for the specified year and week
+    $attendance = DailyRateAttendance::where('year', $year)
+        ->where('week_number', $week)
+        ->get()
+        ->keyBy('employee_id');
 
-        // include any existing payroll items for this week (to show weekly/addon/payment state)
-        $run = PayrollRun::where('year', $year)
-            ->where('week_number', $week)
-            ->first();
+    // Include any existing payroll items for this week (to show weekly/addon/payment state)
+    $run = PayrollRun::where('year', $year)
+        ->where('week_number', $week)
+        ->first();
 
-        $itemsByEmployee = collect();
-        if ($run) {
-            $items = PayrollItem::where('payroll_run_id', $run->id)->get();
-            $itemsByEmployee = $items->keyBy('employee_id');
-        }
-
-        return view('payroll.weekly_report', compact('year', 'week', 'employees', 'attendance', 'itemsByEmployee'));
+    $itemsByEmployee = collect();
+    if ($run) {
+        $items = PayrollItem::where('payroll_run_id', $run->id)->get();
+        $itemsByEmployee = $items->keyBy('employee_id');
     }
+
+    return view('payroll.weekly_report', compact('year', 'week', 'employees', 'attendance', 'itemsByEmployee'));
+}
+
 
     public function weeklyReportCsv(Request $request): StreamedResponse
     {

@@ -90,17 +90,17 @@
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">
                                     {{ number_format($weeklyAmount, 2) }}
                                 </td>
-                                <td class="px-4 py-3 text-right text-sm text-slate-800">
+                                <td class="px-4 py-3 text-right text-sm text-purple-700 font-semibold bg-purple-50">
                                     {{ number_format($addonsTotal, 2) }}
                                 </td>
 
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">
                                     {{ number_format($row['gross_amount'], 2) }}
                                 </td>
-                                <td class="px-4 py-3 text-right text-sm text-slate-800">
+                                <td class="px-4 py-3 text-right text-sm text-green-700 font-semibold bg-green-50">
                                     {{ number_format($row['cash_amount'] ?? 0, 2) }}
                                 </td>
-                                <td class="px-4 py-3 text-right text-sm text-slate-800">
+                                <td class="px-4 py-3 text-right text-sm text-orange-700 font-semibold bg-orange-50">
                                     {{ number_format($row['bank_amount'], 2) }}
                                 </td>
 

@@ -37,7 +37,7 @@
                 <label class="block text-xs font-semibold text-slate-600 mb-1">Week number</label>
                 <select name="week"
                     class="rounded-lg border-slate-200 text-sm focus:ring-slate-500 focus:border-slate-500">
-                    @for ($w = 1; $w <= 52; $w++)
+                    @for ($w = 1; $w <= 53; $w++)
                         <option value="{{ $w }}" @selected($w == $week)>Week {{ $w }}</option>
                     @endfor
                 </select>

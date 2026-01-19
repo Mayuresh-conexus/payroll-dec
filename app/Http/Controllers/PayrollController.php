@@ -24,6 +24,7 @@ class PayrollController extends Controller
 {
     $year = (int) $request->input('year', now()->year);
     $week = (int) $request->input('week', now()->weekOfYear);
+    $weeksInYear = Carbon::create($year, 12, 28)->isoWeek(); // to check 53 weeks
 
     // 1. Check lock status per type for this week
     $dailyLockedWeek = DailyRateAttendance::where('year', $year)
@@ -211,6 +212,7 @@ class PayrollController extends Controller
         'run'    => $run,
         'rows'   => $rows,
         'totals' => $totals,
+        'weeksInYear' => $weeksInYear,
     ]);
 }
 
@@ -846,6 +848,7 @@ $sheet->getStyle("K{$rowIndex}:P{$rowIndex}")
 {
     $year = (int) $request->input('year', now()->year);
     $week = (int) $request->input('week', now()->weekOfYear);
+    $weeksInYear = Carbon::create($year, 12, 28)->isoWeek(); // to check 53 weeks
 
     // Fetch both daily_rate and hourly employees
     $employees = Employee::whereIn('type', ['daily_rate', 'hourly']) // Fetch both daily_rate and hourly employees
@@ -870,7 +873,7 @@ $sheet->getStyle("K{$rowIndex}:P{$rowIndex}")
         $itemsByEmployee = $items->keyBy('employee_id');
     }
 
-    return view('payroll.weekly_report', compact('year', 'week', 'employees', 'attendance', 'itemsByEmployee'));
+    return view('payroll.weekly_report', compact('year', 'week', 'employees', 'attendance', 'itemsByEmployee', 'weeksInYear'));
 }
 
 

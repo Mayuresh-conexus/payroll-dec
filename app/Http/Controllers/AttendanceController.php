@@ -17,6 +17,7 @@ class AttendanceController extends Controller
     $year = $request->input('year', now()->year);
     $week = $request->input('week', now()->weekOfYear);
     $tab  = $request->input('tab', 'daily'); // daily or hourly
+    $weeksInYear = Carbon::create($year, 12, 28)->isoWeek(); // to check 53 weeks
 
     $dailyEmployees  = Employee::where('type', 'daily_rate')->where('is_active', true)->orderBy('name')->get();
     $hourlyEmployees = Employee::where('type', 'hourly')->where('is_active', true)->orderBy('name')->get();
@@ -71,6 +72,7 @@ class AttendanceController extends Controller
         'hourlyAttendances',
         'dailyWeekLocked',
         'hourlyWeekLocked',
+        'weeksInYear',
     ));
 }
 

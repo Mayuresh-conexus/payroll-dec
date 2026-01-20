@@ -7,12 +7,12 @@
     <div class="space-y-6" x-data="{}">
 
         {{-- Top intro + quick week info --}}
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div class="flex flex-col  gap-3">
             <div>
                 <h1 class="text-2xl font-semibold text-slate-900">
                     Weekly payroll overview
                 </h1>
-                <p class="mt-1 text-sm text-slate-500">
+                <p class="mt-1 text-sm pb-4 text-slate-500">
                     Year {{ $currentYear }} - Week {{ $currentWeek }},
                     {{ $today->startOfWeek()->format('d M') }}
                     to
@@ -20,34 +20,36 @@
                 </p>
             </div>
 
-            <div class="flex flex-wrap items-center gap-3 text-xs">
+            @if (auth()->user()->role === 'admin')
 
-                @if (($attendanceStats['daily_locked'] ?? false) || ($attendanceStats['hourly_locked'] ?? false))
-                    <div
-                        class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
-                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                        <span>
-                            Attendance locked for
-                            @if ($attendanceStats['daily_locked'] ?? false)
-                                daily
-                            @endif
-                            @if (($attendanceStats['daily_locked'] ?? false) && ($attendanceStats['hourly_locked'] ?? false))
-                                and
-                            @endif
-                            @if ($attendanceStats['hourly_locked'] ?? false)
-                                hourly
-                            @endif
-                            staff
-                        </span>
-                    </div>
-                @else
-                    <div
-                        class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
-                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                        <span>Attendance still editable this week</span>
-                    </div>
-                @endif
-            </div>
+                <div class="flex flex-wrap items-center gap-3 text-xs">
+
+                    @if (($attendanceStats['daily_locked'] ?? false) || ($attendanceStats['hourly_locked'] ?? false))
+                        <div
+                            class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                            <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            <span>
+                                Attendance locked for
+                                @if ($attendanceStats['daily_locked'] ?? false)
+                                    daily
+                                @endif
+                                @if (($attendanceStats['daily_locked'] ?? false) && ($attendanceStats['hourly_locked'] ?? false))
+                                    and
+                                @endif
+                                @if ($attendanceStats['hourly_locked'] ?? false)
+                                    hourly
+                                @endif
+                                staff
+                            </span>
+                        </div>
+                    @else
+                        <div
+                            class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                            <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                            <span>Attendance still editable this week</span>
+                        </div>
+                    @endif
+                </div>
         </div>
 
         {{-- Top metrics cards --}}
@@ -119,6 +121,7 @@
                     </div>
                 </div>
             </div>
+
 
             {{-- Attendance this week --}}
             <div class="relative overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
@@ -215,6 +218,7 @@
                 </div>
             </div>
 
+
             {{-- Latest payroll --}}
             <div class="relative overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
                 <div
@@ -286,6 +290,7 @@
             </div>
 
         </div>
+        @endif
 
         {{-- Quick actions + report card --}}
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">

@@ -13,7 +13,7 @@
                 <label class="block text-xs font-semibold text-slate-600 mb-1">Year</label>
                 <select name="year"
                     class="rounded-lg border-slate-200 text-sm focus:ring-slate-500 focus:border-slate-500">
-                    @for ($y = now()->year - 1; $y <= now()->year + 1; $y++)
+                    @for ($y = now()->year - 2; $y <= now()->year + 10; $y++)
                         <option value="{{ $y }}" @selected($y == $year)>{{ $y }}</option>
                     @endfor
                 </select>

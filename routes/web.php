@@ -17,19 +17,32 @@ Route::post('/logout', [AuthController::class, 'logout'])
     ->middleware('auth')
     ->name('logout');
 
-// Protected area
-Route::middleware('auth')->group(function () {
 
+
+// Protected area Admin and Manager Only
+Route::middleware(['auth', 'role:admin,manager'])->group(function () {
+    // Attendance Management
+    Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index');
+});
+
+
+// Protected area Admin, Manager and Staff Only
+Route::middleware(['auth', 'role:admin,manager,staff'])->group(function () {
     // Dashboard
     Route::get('/', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard');
+});
+
+
+
+// Protected area ADMIN Only
+Route::middleware(['auth', 'role:admin'])->group(function () {
 
     // Employees CRUD
     Route::resource('employees', EmployeeController::class)->except(['show']);
     // Employee rate history (AJAX)
     Route::get('employees/{employee}/rates', [EmployeeController::class, 'rates'])->name('employees.rates');
 
-    // Attendance Management
-    Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index');
+   
     Route::post('/attendance/daily-rate', [AttendanceController::class, 'storeDailyRate'])->name('attendance.daily_rate.store');
     Route::post('/attendance/hourly', [AttendanceController::class, 'storeHourly'])->name('attendance.hourly.store');
     // Combined save route for merged attendance table

@@ -24,6 +24,8 @@ class EmployeeController extends Controller
             'daily_rate'    => 'required_if:type,daily_rate|nullable|numeric',
             'hourly_rate'   => 'required_if:type,hourly|nullable|numeric',
             'hours_per_day' => 'required_if:type,hourly|nullable|numeric',
+            'bank_transfer_fix_amount' => 'nullable|numeric',
+            'weekly_active_days' => 'nullable|numeric',
         ]);
 
         // create employee record
@@ -76,6 +78,8 @@ class EmployeeController extends Controller
         'daily_rate'    => 'required_if:type,daily_rate|nullable|numeric',
         'hourly_rate'   => 'required_if:type,hourly|nullable|numeric',
         'hours_per_day' => 'required_if:type,hourly|nullable|numeric',
+        'bank_transfer_fix_amount' => 'nullable|numeric',
+        'weekly_active_days' => 'nullable|numeric',
         'is_active'     => 'nullable|boolean',
     ]);
 

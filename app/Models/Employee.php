@@ -27,6 +27,8 @@ class Employee extends Model
         'daily_rate',
         'hourly_rate',
         'hours_per_day',
+        'bank_transfer_fix_amount',
+        'weekly_active_days',
         'is_active',
     ];
 

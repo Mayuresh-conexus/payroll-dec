@@ -17,6 +17,8 @@ return new class extends Migration
             $table->decimal('daily_rate', 10, 2)->nullable()->comment('For CTC employees');
             $table->decimal('hourly_rate', 10, 2)->nullable()->comment('For hourly employees');
             $table->decimal('hours_per_day', 5, 2)->nullable();
+            $table->decimal('bank_transfer_fix_amount', 5, 2)->nullable();
+            $table->decimal('weekly_active_days', 5, 0)->nullable();
             $table->boolean('is_active')->default(true);
             $table->softDeletes();
             $table->timestamps();

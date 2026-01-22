@@ -1,9 +1,8 @@
 @extends('layouts.app')
-
 @section('title', 'Weekly payroll')
 @section('page_title', 'Weekly payroll')
-
 @section('content')
+
     <div x-data="payrollPage()" x-init="init({{ json_encode($rows) }})" class="space-y-6">
 
         {{-- Filter bar --}}
@@ -72,7 +71,7 @@
                             <th class="px-4 py-3 text-center">Attendance</th>
                             <th class="px-4 py-3 text-right">Weekly</th>
                             <th class="px-4 py-3 text-right">Overtime</th>
-                            <th class="px-4 py-3 text-right">Gross salary</th>
+                            {{-- <th class="px-4 py-3 text-right">Gross salary</th> --}}
                             <th class="px-4 py-3 text-right">Weekly Cash</th>
                             <th class="px-4 py-3 text-right">Bank</th>
                         </tr>
@@ -215,31 +214,36 @@
                                     </template>
                                 </td>
 
-                                {{-- Gross --}}
+                                {{-- Gross
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">
                                     <span x-text="formatMoney(items[{{ $index }}].gross)"></span>
-                                </td>
+                                </td> -- }}
 
                                 {{-- Cash (weekly only, editable, max weekly_amount) --}}
                                 <td class="px-4 py-3 text-right align-top">
-
-                                    <input type="number" step="0.01" min="0"
+                                    <!-- Cash -->
+                                    <input type="number" min="0" step="0.01"
                                         x-model.number="items[{{ $index }}].cash"
-                                        @input="recalcForIndex({{ $index }})"
-                                        class="w-24 text-right rounded-md border border-slate-200 px-2 py-1.5 text-sm focus:ring-slate-500 focus:border-slate-500"
-                                        placeholder="0.00">
+                                        @input="recalcRow({{ $index }})"
+                                        class="w-24 text-right border rounded px-2 py-1">
 
                                     <div class="mt-2 text-xs text-slate-600">
                                         Total cash:
-                                        <strong class="ml-1"
-                                            x-text="formatMoney(items[{{ $index }}].totalCash || 0)"></strong>
+                                        <strong class="ml-1" x-text="formatMoney(items[{{ $index }}].Cash || 0)">
+                                        </strong>
                                     </div>
                                 </td>
 
+
                                 {{-- Bank (gross - weeklyCash - addonCash) --}}
-                                <td class="px-4 py-3 text-right text-sm text-slate-800">
-                                    <span x-text="formatMoney(items[{{ $index }}].bank)"></span>
+                                <td class="px-4 py-3 text-right align-top">
+                                    <!-- Bank -->
+                                    <input type="number" min="0" step="0.01"
+                                        x-model.number="items[{{ $index }}].bank"
+                                        @input="updateFromBank({{ $index }})"
+                                        class="w-24 text-right border rounded px-2 py-1">
                                 </td>
+
 
                                 {{-- Hidden inputs for submit --}}
                                 <td class="hidden">
@@ -289,7 +293,7 @@
                     @if ($rows->count())
                         <tfoot class="bg-slate-50 text-sm">
                             <tr>
-                                <td colspan="6" class="px-4 py-3 text-right font-semibold text-slate-700">
+                                <td colspan="5" class="px-4 py-3 text-right font-semibold text-slate-700">
                                     Totals
                                 </td>
                                 <td class="px-4 py-3 text-right font-semibold text-slate-800">
@@ -419,175 +423,170 @@
             return {
                 items: [],
                 totals: {
-                    gross: 0,
-                    weeklyCash: 0,
-                    addonCash: 0,
+                    weeklyAmount: 0,
                     cash: 0,
                     bank: 0,
                 },
 
-                init(serverRows) {
-                    this.items = serverRows.map(row => {
-                        const gross = Number(row.gross_amount || 0);
-                        const weeklyAmount = Number(row.weekly_amount || 0);
+                year: {{ $year }},
+                month: {{ $month }},
 
-                        // weekly cash from DB, editable, max weekly_amount
-                        let cash = Number(row.cash_amount || 0);
-                        if (!isFinite(cash) || cash < 0) cash = 0;
-                        if (cash > weeklyAmount) cash = weeklyAmount;
+                /*
+                 * Count payroll weeks:
+                 * ISO weeks whose MONDAY is inside the given month
+                 */
+                getPayrollWeeksInMonth(year, month) {
+                    const weeks = new Set();
 
-                        const addons = row.addons ?
-                            (Array.isArray(row.addons) ? row.addons : JSON.parse(row.addons)) : [];
+                    let d = new Date(year, month - 1, 1);
 
-                        const selectedAddons = addons.filter(a => !!a.cash).map(a => a.date);
-
-                        return {
-                            gross: gross,
-                            weekly_amount: weeklyAmount,
-                            cash: cash,
-                            bank: 0,
-
-                            addons: addons,
-                            selectedAddons: selectedAddons,
-                            modalOpen: false,
-
-                            addonTotal: 0,
-                            addonCashTotal: 0,
-                            addonBankTotal: 0,
-
-                            totalCash: 0,
-                            // include identifiers for AJAX save
-                            employee: row.employee || null,
-                            employee_id: row.employee ? row.employee.id : null,
-                            type: row.type || null,
-                        };
-                    });
-
-                    for (let i = 0; i < this.items.length; i++) {
-                        this.recalcForIndex(i);
+                    // move to first Monday
+                    while (d.getDay() !== 1) {
+                        d.setDate(d.getDate() + 1);
                     }
+
+                    while (d.getMonth() === month - 1) {
+                        const iso = new Date(d);
+                        iso.setDate(iso.getDate() + 4 - (iso.getDay() || 7));
+                        const yearStart = new Date(iso.getFullYear(), 0, 1);
+                        const weekNo = Math.ceil((((iso - yearStart) / 86400000) + 1) / 7);
+
+                        weeks.add(weekNo);
+                        d.setDate(d.getDate() + 7);
+                    }
+
+                    return weeks.size || 1;
                 },
 
-                recalcForIndex(index) {
-                    const it = this.items[index];
+                init(serverRows) {
+                    const weeksInMonth = this.getPayrollWeeksInMonth(this.year, this.month);
+                    console.log('Payroll weeks:', weeksInMonth);
 
-                    // cap weekly cash to weekly_amount
-                    it.cash = Number(it.cash || 0);
-                    if (!isFinite(it.cash) || it.cash < 0) it.cash = 0;
+                    this.items = serverRows.map(row => {
+                        const weeklyAmount = Number(row.weekly_amount || 0);
 
-                    const weekly = Number(it.weekly_amount || 0);
-                    if (it.cash > weekly) it.cash = weekly;
+                        const isFirstTime =
+                            row.cash_amount === 0;
 
-                    const selected = it.selectedAddons || [];
-                    const addons = it.addons || [];
+                        let cash = 0;
+                        let bank = 0;
 
-                    let addonTotal = 0;
-                    let addonCashTotal = 0;
+                        if (isFirstTime && row.employee) {
+                            // FIRST LOAD ONLY
+                            const monthlyBank = Number(row.employee.bank_transfer_fix_amount || 0);
+                            bank = monthlyBank / weeksInMonth;
+                            cash = weeklyAmount - bank;
+                        } else {
+                            // USE SAVED VALUES
+                            cash = Number(row.cash_amount || 0);
+                            bank = Number(row.bank_amount || 0);
+                        }
 
-                    for (const a of addons) {
-                        const amt = Number(a.amount || 0) || 0;
-                        addonTotal += amt;
+                        // Clamp + normalize
+                        if (cash < 0) cash = 0;
+                        if (bank < 0) bank = 0;
 
-                        a.cash = selected.includes(a.date);
-                        if (a.cash) addonCashTotal += amt;
-                    }
+                        if (cash + bank !== weeklyAmount) {
+                            bank = Math.min(bank, weeklyAmount);
+                            cash = weeklyAmount - bank;
+                        }
 
-                    it.addonTotal = addonTotal;
-                    it.addonCashTotal = addonCashTotal;
-                    it.addonBankTotal = Math.max(0, addonTotal - addonCashTotal);
+                        cash = Math.round(cash * 100) / 100;
+                        bank = Math.round(bank * 100) / 100;
 
-                    it.totalCash = (Number(it.cash || 0) || 0) + addonCashTotal;
-                    it.bank = Math.max(0, (Number(it.gross || 0) || 0) - it.totalCash);
+                        return {
+                            weekly_amount: weeklyAmount,
+                            cash: cash,
+                            bank: bank,
+                            employee_id: row.employee?.id ?? null,
+                            type: row.type ?? null,
+                        };
+                    });
 
                     this.recalculateTotals();
                 },
 
-                applySelectedAddons(index) {
-                    // prepare payload for single-row save via AJAX
-                    this.recalcForIndex(index);
-
+                recalcRow(index) {
                     const it = this.items[index];
-                    const itemPayload = {
-                        employee_id: it.employee_id || (it.employee ? it.employee.id : null),
-                        type: it.type || null,
-                        gross: it.gross || 0,
-                        weekly_amount: it.weekly_amount || 0,
-                        cash: it.cash || 0,
-                        bank: it.bank || 0,
-                        addons: it.addons || [],
-                        addons_selected_dates: JSON.stringify(it.selectedAddons || []),
-                    };
+                    const weekly = Number(it.weekly_amount || 0);
 
-                    const body = {
-                        year: {{ $year }},
-                        week: {{ $week }},
-                        items: [itemPayload]
-                    };
+                    let cash = Number(it.cash || 0);
+                    if (!isFinite(cash) || cash < 0) cash = 0;
+                    if (cash > weekly) cash = weekly;
 
-                    // send AJAX request
+                    cash = Math.round(cash * 100) / 100;
+
+                    it.cash = cash;
+                    it.bank = Math.round((weekly - cash) * 100) / 100;
+
+                    this.recalculateTotals();
+                },
+
+                updateFromBank(index) {
+                    const it = this.items[index];
+                    const weekly = Number(it.weekly_amount || 0);
+
+                    let bank = Number(it.bank || 0);
+                    if (!isFinite(bank) || bank < 0) bank = 0;
+                    if (bank > weekly) bank = weekly;
+
+                    bank = Math.round(bank * 100) / 100;
+
+                    it.bank = bank;
+                    it.cash = Math.round((weekly - bank) * 100) / 100;
+
+                    this.recalculateTotals();
+                },
+
+                recalculateTotals() {
+                    let weekly = 0,
+                        cash = 0,
+                        bank = 0;
+
+                    for (const it of this.items) {
+                        weekly += Number(it.weekly_amount || 0);
+                        cash += Number(it.cash || 0);
+                        bank += Number(it.bank || 0);
+                    }
+
+                    this.totals.weeklyAmount = weekly;
+                    this.totals.cash = cash;
+                    this.totals.bank = bank;
+                },
+
+                formatMoney(v) {
+                    return Number(v || 0).toFixed(2);
+                },
+
+                saveRow(index) {
+                    const it = this.items[index];
+
                     fetch("{{ route('payroll.saveWeek') }}", {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'Accept': 'application/json',
                             'X-Requested-With': 'XMLHttpRequest',
-                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
                         },
-                        body: JSON.stringify(body),
-                    }).then(async res => {
-                        if (!res.ok) throw new Error('Save failed');
-                        const j = await res.json();
-                        const updated = (j.items && j.items[0]) ? j.items[0] : null;
-                        if (updated) {
-                            // ensure addons is array
-                            const addons = Array.isArray(updated.addons) ? updated.addons : (updated.addons ?
-                                JSON.parse(updated.addons) : []);
-                            this.items[index].addons = addons;
-                            this.items[index].selectedAddons = addons.filter(a => !!a.cash).map(a => a.date);
-                            this.items[index].cash = Number(updated.cash_amount || 0);
-                            this.items[index].gross = Number(updated.gross_amount || 0) || this.items[index]
-                                .gross;
-                            this.items[index].addonTotal = Number(updated.addonTotal || 0);
-                            this.items[index].addonCashTotal = Number(updated.addonCashTotal || 0);
-                            this.items[index].totalCash = Number(updated.totalCash || 0);
-                            this.items[index].bank = Number(updated.computed_bank || 0);
-                            this.recalcForIndex(index);
-                        }
-                        this.items[index].modalOpen = false;
-                    }).catch(err => {
-                        console.error(err);
-                        // fallback: just close modal and let user Submit full form
-                        this.items[index].modalOpen = false;
+                        body: JSON.stringify({
+                            year: this.year,
+                            week: {{ $week }},
+                            items: [{
+                                employee_id: it.employee_id,
+                                type: it.type,
+                                weekly_amount: it.weekly_amount,
+                                cash: it.cash,
+                                bank: it.bank,
+                            }]
+                        }),
                     });
-                },
-
-                recalculateTotals() {
-                    let gross = 0;
-                    let weeklyCash = 0;
-                    let addonCash = 0;
-                    let cash = 0;
-                    let bank = 0;
-
-                    for (const it of this.items) {
-                        gross += Number(it.gross || 0) || 0;
-                        weeklyCash += Number(it.cash || 0) || 0;
-                        addonCash += Number(it.addonCashTotal || 0) || 0;
-                        cash += Number(it.totalCash || 0) || 0;
-                        bank += Number(it.bank || 0) || 0;
-                    }
-
-                    this.totals.gross = gross;
-                    this.totals.weeklyCash = weeklyCash;
-                    this.totals.addonCash = addonCash;
-                    this.totals.cash = cash;
-                    this.totals.bank = bank;
-                },
-
-                formatMoney(v) {
-                    const n = Number(v || 0) || 0;
-                    return n.toFixed(2);
                 }
             };
         }
     </script>
+
+
+
+
 @endsection

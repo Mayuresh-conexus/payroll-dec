@@ -188,7 +188,7 @@
                 class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 sm:p-7 space-y-6" x-data="{ empType: 'daily_rate' }">
 
                 {{-- Header --}}
-                <div class="flex items-start justify-between gap-4 px-6 sm:px-7 py-6">
+                <div class="flex items-start justify-between">
                     <div>
                         <h2 class="text-lg font-semibold text-slate-900">Add employee</h2>
                         <p class="mt-1 text-xs text-slate-500">
@@ -306,6 +306,7 @@
                                 </p>
                             </div>
 
+
                             <div>
                                 <label class="block text-xs font-medium text-slate-600 mb-1">
                                     Hours per day
@@ -317,8 +318,32 @@
                                     Only used for hourly employees.
                                 </p>
                             </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Bank Transfer Fix Amount <span class="text-rose-500">*</span>
+                                </label>
+                                <input type="text" name="bank_transfer_fix_amount" required
+                                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
+                                    placeholder="Full name">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Weekly Active Days <span class="text-rose-500">*</span>
+                                </label>
+                                <input type="text" name="weekly_active_days" required
+                                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
+                                    placeholder="Full name">
+                            </div>
                         </div>
                     </div>
+
+
+
+
+
+
 
                     <div>
                         <label class="block text-xs font-medium text-slate-600 mb-1">
@@ -418,6 +443,7 @@
                                         class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
                                         x-model="editingEmployee.department">
                                 </div>
+
                             </div>
                         </div>
 
@@ -450,6 +476,7 @@
                                         <option value="daily_rate">Daily rate</option>
                                         <option value="hourly">Hourly</option>
                                     </select>
+
                                 </div>
 
                                 <template x-if="editingEmployee && editingEmployee.type === 'daily_rate'">
@@ -464,6 +491,7 @@
                                         </div>
                                     </div>
                                 </template>
+
 
                                 <template x-if="editingEmployee && editingEmployee.type === 'hourly'">
                                     <div>
@@ -502,17 +530,37 @@
                                 </template>
                             </div>
                         </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 mt-4 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Bank Transfer Fix Amount <span class="text-rose-500">*</span>
+                                </label>
+                                <input type="text" name="bank_transfer_fix_amount" required
+                                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
+                                    placeholder="Full name" x-model="editingEmployee.bank_transfer_fix_amount">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    Weekly Active Days <span class="text-rose-500">*</span>
+                                </label>
+                                <input type="text" name="weekly_active_days" required
+                                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
+                                    placeholder="Full name" x-model="editingEmployee.weekly_active_days">
+                            </div>
+                        </div>
 
                         <div class="pb-3">
-                            <label class="block text-xs font-medium text-slate-600 mb-1">
+                            <label class="block text-xs mt-4 font-medium text-slate-600 mb-1">
                                 Rate effective from
                             </label>
                             <input type="date" name="rate_effective_from"
                                 x-model="editingEmployee.rate_effective_from"
-                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                value="{{ now()->toDateString() }}">
                             <p class="mt-1 text-[11px] text-slate-400">When updating rates, this date controls the
                                 effective-from for the recorded rate change.</p>
                         </div>
+
 
                         <hr class="border-slate-100 pb-3">
 
@@ -535,6 +583,7 @@
                                                         <span x-text="'Show all'"></span>
                                                     </button>
                                                 </div>
+
                                                 <div class="mt-2 bg-slate-50 rounded border border-slate-100 p-3">
                                                     <template x-if="(editingEmployee.ratesByType[rateType] || []).length">
                                                         <table class="w-full text-xs">

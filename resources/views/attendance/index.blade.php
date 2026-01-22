@@ -162,12 +162,17 @@
                                     $hHours = $hAtt ? $hAtt->hours_map ?? [] : [];
                                     $hOt = $hAtt ? $hAtt->ot_map ?? [] : [];
                                     $defaultHours = $employee->hours_per_day ?? 0;
+                                    $defaultWorkingDays =
+                                        ($employee->weekly_active_days ?? 0) > 0
+                                            ? (int) $employee->weekly_active_days
+                                            : 6;
                                 @endphp
 
                                 <tr class="hover:bg-slate-50/80 transition">
                                     <td class="px-3 py-2 font-mono text-xs text-slate-600">{{ $employee->employee_code }}
                                     </td>
-                                    <td class="px-3 py-2 text-sm font-medium text-slate-800">{{ $employee->name }}</td>
+                                    <td class="px-3 py-2 text-sm font-medium text-slate-800">
+                                        {{ $employee->name }}</td>
                                     <td class="px-3 py-2 text-sm text-slate-600">{{ $employee->department ?? 'Not set' }}
                                     </td>
                                     <td class="px-3 py-2 text-xs text-slate-600">
@@ -177,24 +182,31 @@
                                     @foreach (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as $d)
                                         <td class="px-1 py-1 align-top text-center">
                                             @php
-                                                // determine present/absent. For hourly, prefer hours>0 when days flag not provided.
+                                                $isWeekendOff =
+                                                    $defaultWorkingDays == 6
+                                                        ? $d === 'sun'
+                                                        : in_array($d, ['sat', 'sun']);
+
                                                 $dayKey = "attendance.{$employee->id}.days.{$d}";
                                                 $hoursKey = "attendance.{$employee->id}.hours_map.{$d}";
 
-                                                if ($employee->type === 'hourly') {
-                                                    // prefer saved hours when present; otherwise default: sunday=0, others = employee default
-                                                    $hDefault = isset($hHours[$d])
-                                                        ? $hHours[$d]
-                                                        : ($d === 'sun'
+                                                $defaultHourValue =
+                                                    $employee->type === 'hourly'
+                                                        ? ($isWeekendOff
                                                             ? 0
-                                                            : $defaultHours);
-                                                    $hVal = old($hoursKey, $hDefault);
-                                                    $derived = (float) $hVal > 0 ? 1 : 0;
-                                                    $checked = (int) old($dayKey, $derived);
+                                                            : $defaultHours)
+                                                        : 0;
+
+                                                if ($employee->type === 'hourly') {
+                                                    $defaultHourValue = $isWeekendOff ? 0 : $defaultHours;
+
+                                                    $hVal = old($hoursKey, $hHours[$d] ?? $defaultHourValue);
+
+                                                    $checked = (int) old($dayKey, (float) $hVal > 0 ? 1 : 0);
                                                 } else {
                                                     $checked = (int) old(
                                                         $dayKey,
-                                                        $daysMap[$d] ?? ($d === 'sun' ? 0 : 1),
+                                                        $daysMap[$d] ?? ($isWeekendOff ? 0 : 1),
                                                     );
                                                 }
 
@@ -204,16 +216,14 @@
                                                 );
                                             @endphp
 
+
                                             <div x-data="{
                                                 present: {{ $checked ? 'true' : 'false' }},
                                                 inputName: 'attendance[{{ $employee->id }}][days][{{ $d }}]',
                                                 hoursName: 'attendance[{{ $employee->id }}][hours_map][{{ $d }}]',
-                                                hoursVal: @if ($employee->type === 'hourly') @json(old(
-                                                        "attendance.{$employee->id}.hours_map.{$d}",
-                                                        isset($hHours[$d]) ? $hHours[$d] : ($d === 'sun' ? 0 : $defaultHours)))
-        @else
-            0 @endif
+                                                hoursVal: {{ $checked ? $hHours[$d] ?? $defaultHourValue : 0 }}
                                             }" class="flex flex-col items-center gap-1">
+
                                                 <!-- Present / Absent -->
                                                 <button type="button"
                                                     @click="present = !present; if (present) { hoursVal = hoursVal > 0 ? hoursVal : {{ $defaultHours }} } else { hoursVal = 0 }"

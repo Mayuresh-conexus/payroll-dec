@@ -89,7 +89,7 @@
                             }
 
                             $presentDays = collect($daysMap)
-                                ->only(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
+                                ->only(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])
                                 ->sum();
                             $absentDays = max(0, 6 - $presentDays);
                         @endphp
@@ -102,7 +102,9 @@
                             @foreach ($dayKeys as $key)
                                 @php $val = $daysMap[$key] ?? 0; @endphp
                                 <td class="px-2 py-3 text-center">
-                                    @if ($key === 'sun')
+
+
+                                    @if ($key === 'sun' && !$val)
                                         <span
                                             class="inline-flex items-center justify-center px-2 py-1 rounded-full bg-slate-100 text-slate-400 text-[11px]">OFF</span>
                                     @else

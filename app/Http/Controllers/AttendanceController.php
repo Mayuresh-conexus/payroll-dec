@@ -60,12 +60,36 @@ class AttendanceController extends Controller
         ->where('locked', true)
         ->exists();
 
+
+
+
+    // Load previous week attendance (for copy P/A)
+
+        $prevWeek = $week - 1;
+        $prevYear = $year;
+
+        if ($prevWeek < 1) {
+            $prevYear--;
+            $prevWeek = Carbon::create($prevYear, 12, 28)->isoWeek();
+        }
+
+        $prevDailyAttendances = DailyRateAttendance::where('year', $prevYear)
+            ->where('week_number', $prevWeek)
+            ->get()
+            ->keyBy('employee_id');
+
+        $prevHourlyAttendances = HourlyAttendance::where('year', $prevYear)
+            ->where('week_number', $prevWeek)
+            ->get()
+            ->keyBy('employee_id');
+
+
         return view('attendance.index', compact(
         'year',
         'week',
         'tab',
         'dayDates',
-           'todayKey',
+        'todayKey',
         'dailyEmployees',
         'hourlyEmployees',
         'dailyAttendances',
@@ -73,6 +97,8 @@ class AttendanceController extends Controller
         'dailyWeekLocked',
         'hourlyWeekLocked',
         'weeksInYear',
+        'prevDailyAttendances',
+        'prevHourlyAttendances'
     ));
 }
 

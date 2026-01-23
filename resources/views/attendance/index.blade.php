@@ -7,8 +7,62 @@
     <div x-data="{
         year: {{ $year }},
         week: {{ $week }},
-        lockWeek: {{ $dailyWeekLocked || $hourlyWeekLocked ? 'true' : 'false' }}
+        lockWeek: {{ $dailyWeekLocked || $hourlyWeekLocked ? 'true' : 'false' }},
+    
+        copyFromLastWeek() {
+            if (this.lockWeek) return;
+    
+            document.querySelectorAll('[data-employee]').forEach(row => {
+                const employeeId = row.dataset.employee;
+                const type = row.dataset.type;
+    
+                const prev =
+                    type === 'daily' ?
+                    window.prevAttendance.daily[employeeId] :
+                    window.prevAttendance.hourly[employeeId];
+    
+                if (!prev) return;
+    
+                const days =
+                    type === 'daily' ?
+                    (prev.days_map ?? {}) :
+                    (prev.hours_map ?? {});
+    
+                // 1. Reset all days first
+                ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].forEach(day => {
+                    const cell = row.querySelector(`[data-day='${day}']`);
+                    if (!cell) return;
+    
+                    const data = Alpine.$data(cell);
+                    if (!data) return;
+    
+                    data.present = false;
+                    if (type === 'hourly') {
+                        data.hoursVal = 0;
+                    }
+                });
+    
+                // 2. Apply previous week values
+                Object.keys(days).forEach(day => {
+                    const cell = row.querySelector(`[data-day='${day}']`);
+                    if (!cell) return;
+    
+                    const data = Alpine.$data(cell);
+                    if (!data) return;
+    
+                    if (type === 'daily') {
+                        data.present = days[day] == 1;
+                    } else {
+                        const hrs = parseFloat(days[day] ?? 0);
+                        data.present = hrs > 0;
+                        data.hoursVal = hrs > 0 ? hrs : 0;
+                    }
+                });
+            });
+        }
     }" class="space-y-6">
+
+
 
         {{-- Header / Filters same as before --}}
         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -50,6 +104,8 @@
                     class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800">
                     Load week
                 </button>
+
+
             </div>
         </form>
 
@@ -63,8 +119,17 @@
             <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
 
                 {{-- Lock bar --}}
-                <div class="flex items-center justify-between text-xs mb-4">
+                <div class="flex items-center gap-6 text-xs mb-4">
+
+                    <span
+                        class="text-white bg-gradient-to-r from-blue-500 via-blue-600 to-blue-700 hover:bg-gradient-to-br focus:ring-4 focus:outline-none focus:ring-blue-300 dark:focus:ring-blue-800 font-medium rounded-full text-xs px-6 py-1 text-center leading-5">Week
+                        {{ $week }} - {{ $year }}</span>
+
+
+
+
                     <div class="flex items-center gap-3">
+
                         <button type="button" @click="lockWeek = !lockWeek"
                             class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200"
                             :class="lockWeek ? 'bg-emerald-500' : 'bg-slate-300'">
@@ -83,7 +148,30 @@
                                 x-text="lockWeek ? 'Attendance frozen for this week' : 'You can edit attendance for this week'"></span>
                         </span>
                     </div>
-                    <span class="text-slate-500">Week {{ $week }} - {{ $year }}</span>
+
+                    <button type="button" @click="copyFromLastWeek()" :disabled="lockWeek"
+                        class="
+        inline-flex items-center gap-2
+        px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 hover:shadow
+        active:scale-[0.98]
+        disabled:bg-slate-300
+        disabled:text-slate-500
+        disabled:cursor-not-allowed
+        disabled:shadow-none
+    ">
+                        <!-- Icon -->
+                        <svg class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true"
+                            xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
+                            viewBox="0 0 24 24">
+                            <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
+                                d="M14 4v3a1 1 0 0 1-1 1h-3m4 10v1a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h2m11-3v10a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V7.87a1 1 0 0 1 .24-.65l2.46-2.87a1 1 0 0 1 .76-.35H18a1 1 0 0 1 1 1Z" />
+                        </svg>
+
+
+
+                        <span>Copy from last week</span>
+                    </button>
+
                 </div>
 
                 <div class="overflow-x-auto">
@@ -168,7 +256,10 @@
                                             : 6;
                                 @endphp
 
-                                <tr class="hover:bg-slate-50/80 transition">
+                                <tr data-employee="{{ $employee->id }}"
+                                    data-type="{{ $employee->type === 'daily_rate' ? 'daily' : 'hourly' }}"
+                                    class="hover:bg-slate-50/80 transition">
+
                                     <td class="px-3 py-2 font-mono text-xs text-slate-600">{{ $employee->employee_code }}
                                     </td>
                                     <td class="px-3 py-2 text-sm font-medium text-slate-800">
@@ -217,12 +308,14 @@
                                             @endphp
 
 
-                                            <div x-data="{
+                                            <div data-day="{{ $d }}" x-data="{
                                                 present: {{ $checked ? 'true' : 'false' }},
                                                 inputName: 'attendance[{{ $employee->id }}][days][{{ $d }}]',
                                                 hoursName: 'attendance[{{ $employee->id }}][hours_map][{{ $d }}]',
                                                 hoursVal: {{ $checked ? $hHours[$d] ?? $defaultHourValue : 0 }}
-                                            }" class="flex flex-col items-center gap-1">
+                                            }"
+                                                class="flex flex-col items-center gap-1">
+
 
                                                 <!-- Present / Absent -->
                                                 <button type="button"
@@ -358,4 +451,11 @@
             </div>
         </form>
     </div>
+
+    <script>
+        window.prevAttendance = @json([
+            'daily' => $prevDailyAttendances,
+            'hourly' => $prevHourlyAttendances,
+        ]);
+    </script>
 @endsection

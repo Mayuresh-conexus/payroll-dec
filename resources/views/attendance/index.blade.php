@@ -9,9 +9,67 @@
         week: {{ $week }},
         lockWeek: {{ $dailyWeekLocked || $hourlyWeekLocked ? 'true' : 'false' }},
     
-        copyFromLastWeek() {
+        copied: false,
+        originalData: {},
+    
+        snapshotCurrent() {
+            this.originalData = {};
+    
+            document.querySelectorAll('[data-employee]').forEach(row => {
+                const employeeId = row.dataset.employee;
+                const type = row.dataset.type;
+    
+                this.originalData[employeeId] = { type, days: {} };
+    
+                ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].forEach(day => {
+                    const cell = row.querySelector(`[data-day='${day}']`);
+                    if (!cell) return;
+    
+                    const data = Alpine.$data(cell);
+                    if (!data) return;
+    
+                    this.originalData[employeeId].days[day] = {
+                        present: data.present,
+                        hoursVal: type === 'hourly' ? data.hoursVal : null
+                    };
+                });
+            });
+        },
+    
+        restoreSnapshot() {
+            Object.entries(this.originalData).forEach(([employeeId, emp]) => {
+                const row = document.querySelector(`[data-employee='${employeeId}']`);
+                if (!row) return;
+    
+                Object.entries(emp.days).forEach(([day, values]) => {
+                    const cell = row.querySelector(`[data-day='${day}']`);
+                    if (!cell) return;
+    
+                    const data = Alpine.$data(cell);
+                    if (!data) return;
+    
+                    data.present = values.present;
+                    if (emp.type === 'hourly') {
+                        data.hoursVal = values.hoursVal ?? 0;
+                    }
+                });
+            });
+        },
+    
+        copyFromLastWeekToggle() {
             if (this.lockWeek) return;
     
+            if (!this.copied) {
+                this.snapshotCurrent();
+                this.applyLastWeek();
+                this.copied = true;
+            } else {
+                this.restoreSnapshot();
+                this.copied = false;
+            }
+        },
+    
+        applyLastWeek() {
             document.querySelectorAll('[data-employee]').forEach(row => {
                 const employeeId = row.dataset.employee;
                 const type = row.dataset.type;
@@ -28,22 +86,7 @@
                     (prev.days_map ?? {}) :
                     (prev.hours_map ?? {});
     
-                // 1. Reset all days first
                 ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].forEach(day => {
-                    const cell = row.querySelector(`[data-day='${day}']`);
-                    if (!cell) return;
-    
-                    const data = Alpine.$data(cell);
-                    if (!data) return;
-    
-                    data.present = false;
-                    if (type === 'hourly') {
-                        data.hoursVal = 0;
-                    }
-                });
-    
-                // 2. Apply previous week values
-                Object.keys(days).forEach(day => {
                     const cell = row.querySelector(`[data-day='${day}']`);
                     if (!cell) return;
     
@@ -61,6 +104,7 @@
             });
         }
     }" class="space-y-6">
+
 
 
 
@@ -149,28 +193,32 @@
                         </span>
                     </div>
 
-                    <button type="button" @click="copyFromLastWeek()" :disabled="lockWeek"
+
+
+                    <button type="button" @click="copyFromLastWeekToggle()" :disabled="lockWeek"
+                        :class="copied
+                            ?
+                            'bg-green-700 hover:bg-green-900' :
+                            'bg-slate-900 hover:bg-slate-700'"
                         class="
         inline-flex items-center gap-2
-        px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 hover:shadow
+        px-4 py-2 rounded-lg text-white text-xs font-medium  hover:shadow
         active:scale-[0.98]
         disabled:bg-slate-300
         disabled:text-slate-500
         disabled:cursor-not-allowed
         disabled:shadow-none
     ">
-                        <!-- Icon -->
-                        <svg class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true"
+                        <svg class="w-4 h-4 text-gray-800 dark:text-white" aria-hidden="true"
                             xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
                             viewBox="0 0 24 24">
                             <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
                                 d="M14 4v3a1 1 0 0 1-1 1h-3m4 10v1a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h2m11-3v10a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V7.87a1 1 0 0 1 .24-.65l2.46-2.87a1 1 0 0 1 .76-.35H18a1 1 0 0 1 1 1Z" />
                         </svg>
 
-
-
-                        <span>Copy from last week</span>
+                        <span x-text="copied ? 'Revert copied data' : 'Copy from last week'"></span>
                     </button>
+
 
                 </div>
 

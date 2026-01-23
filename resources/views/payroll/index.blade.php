@@ -3,7 +3,7 @@
 @section('page_title', 'Weekly payroll')
 @section('content')
 
-    <div x-data="payrollPage()" x-init="init({{ json_encode($rows) }})" class="space-y-6">
+    <div x-data="payrollPage()" x-init="init(window.payrollServerRows)" class="space-y-6">
 
         {{-- Filter bar --}}
         <form method="get" action="{{ route('payroll.index') }}"
@@ -69,11 +69,11 @@
                             <th class="px-4 py-3 text-left">Name</th>
                             <th class="px-4 py-3 text-center">Type</th>
                             <th class="px-4 py-3 text-center">Attendance</th>
-                            <th class="px-4 py-3 text-right">Weekly</th>
-                            <th class="px-4 py-3 text-right">Overtime</th>
+                            <th class="px-4 py-3 text-right">Weekly Total</th>
+                            {{-- <th class="px-4 py-3 text-right">Overtime</th> --}}
                             {{-- <th class="px-4 py-3 text-right">Gross salary</th> --}}
                             <th class="px-4 py-3 text-right">Weekly Cash</th>
-                            <th class="px-4 py-3 text-right">Bank</th>
+                            <th class="px-4 py-3 text-right">Weekly Bank</th>
                         </tr>
                     </thead>
 
@@ -148,7 +148,7 @@
                                     <span x-text="formatMoney(items[{{ $index }}].weekly_amount)"></span>
                                 </td>
 
-                                {{-- Addons: show total + breakdown, popup to set cash=true by date --}}
+                                {{-- Addons: show total + breakdown, popup to set cash=true by date 
                                 <td class="px-4 py-3 text-right text-sm">
                                     <template x-if="(items[{{ $index }}].addonTotal || 0) > 0">
                                         <div>
@@ -212,7 +212,7 @@
                                     <template x-if="(items[{{ $index }}].addonTotal || 0) <= 0">
                                         <span>-</span>
                                     </template>
-                                </td>
+                                </td> --}}
 
                                 {{-- Gross
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">
@@ -227,11 +227,11 @@
                                         @input="recalcRow({{ $index }})"
                                         class="w-24 text-right border rounded px-2 py-1">
 
-                                    <div class="mt-2 text-xs text-slate-600">
+                                    {{-- <div class="mt-2 text-xs text-slate-600">
                                         Total cash:
                                         <strong class="ml-1" x-text="formatMoney(items[{{ $index }}].Cash || 0)">
                                         </strong>
-                                    </div>
+                                    </div> --}}
                                 </td>
 
 
@@ -293,11 +293,11 @@
                     @if ($rows->count())
                         <tfoot class="bg-slate-50 text-sm">
                             <tr>
-                                <td colspan="5" class="px-4 py-3 text-right font-semibold text-slate-700">
+                                <td colspan="4" class="px-4 py-3 text-right font-semibold text-slate-700">
                                     Totals
                                 </td>
                                 <td class="px-4 py-3 text-right font-semibold text-slate-800">
-                                    <span x-text="formatMoney(totals.gross)"></span>
+                                    <span x-text="formatMoney(totals.weeklyAmount)"></span>
                                 </td>
                                 <td class="px-4 py-3 text-right font-semibold text-slate-800">
                                     <span x-text="formatMoney(totals.cash)"></span>
@@ -419,6 +419,10 @@
     </div>
 
     <script>
+        window.payrollServerRows = @json($rows);
+    </script>
+
+    <script>
         function payrollPage() {
             return {
                 items: [],
@@ -459,40 +463,40 @@
                 },
 
                 init(serverRows) {
+                    if (!Array.isArray(serverRows)) {
+                        console.error('Payroll init failed: serverRows is not an array', serverRows);
+                        return;
+                    }
+
                     const weeksInMonth = this.getPayrollWeeksInMonth(this.year, this.month);
-                    console.log('Payroll weeks:', weeksInMonth);
 
                     this.items = serverRows.map(row => {
                         const weeklyAmount = Number(row.weekly_amount || 0);
+                        const savedCash = Number(row.cash_amount || 0);
+                        const savedBank = Number(row.bank_amount || 0);
 
-                        const isFirstTime =
-                            row.cash_amount === 0;
+                        // Payroll already saved if either value exists
+                        const isSaved = savedCash > 0;
 
-                        let cash = 0;
-                        let bank = 0;
+                        let cashAmount;
+                        let bankAmount;
 
-                        if (isFirstTime && row.employee) {
-                            // FIRST LOAD ONLY
-                            const monthlyBank = Number(row.employee.bank_transfer_fix_amount || 0);
-                            bank = monthlyBank / weeksInMonth;
-                            cash = weeklyAmount - bank;
+                        if (isSaved) {
+                            cashAmount = savedCash;
+                            bankAmount = savedBank;
                         } else {
-                            // USE SAVED VALUES
-                            cash = Number(row.cash_amount || 0);
-                            bank = Number(row.bank_amount || 0);
+                            console.log(savedBank);
+
+                            bankAmount = weeksInMonth > 0 ?
+                                savedBank / weeksInMonth :
+                                savedBank;
+
+                            cashAmount = weeklyAmount - bankAmount;
                         }
 
-                        // Clamp + normalize
-                        if (cash < 0) cash = 0;
-                        if (bank < 0) bank = 0;
-
-                        if (cash + bank !== weeklyAmount) {
-                            bank = Math.min(bank, weeklyAmount);
-                            cash = weeklyAmount - bank;
-                        }
-
-                        cash = Math.round(cash * 100) / 100;
-                        bank = Math.round(bank * 100) / 100;
+                        // Normalize values
+                        const cash = Math.round(Math.max(0, cashAmount) * 100) / 100;
+                        const bank = Math.round(Math.max(0, bankAmount) * 100) / 100;
 
                         return {
                             weekly_amount: weeklyAmount,
@@ -500,11 +504,15 @@
                             bank: bank,
                             employee_id: row.employee?.id ?? null,
                             type: row.type ?? null,
+                            gross_amount: Number(row.gross_amount || 0),
+                            overtime_amount: Number(row.overtime_amount || 0),
+                            addons: row.addons || [],
                         };
                     });
 
                     this.recalculateTotals();
                 },
+
 
                 recalcRow(index) {
                     const it = this.items[index];
@@ -560,6 +568,7 @@
 
                 saveRow(index) {
                     const it = this.items[index];
+                    console.log("Saving row", it);
 
                     fetch("{{ route('payroll.saveWeek') }}", {
                         method: 'POST',
@@ -585,8 +594,4 @@
             };
         }
     </script>
-
-
-
-
 @endsection

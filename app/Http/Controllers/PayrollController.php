@@ -43,9 +43,8 @@ class PayrollController extends Controller
     // 2. Load any existing payroll run
     $run = PayrollRun::with('items.employee')
         ->where('year', $year)
-        ->where('week_number', $week)
-        ->first();
-
+        ->where('week_number', $week)->first();
+//  
     // 3. Always start from attendance based rows (fresh gross etc)
     $rows = $this->buildRowsFromAttendance($year, $week);
 
@@ -118,6 +117,10 @@ class PayrollController extends Controller
                     $row   = $rowsByKey->get($key);
                     $gross = (float) ($row['gross_amount'] ?? 0);
                     $cash  = (float) ($item->cash_amount ?? 0);
+                    $bank_amount_fix = $employee->bank_transfer_fix_amount ?? 0;
+                    $bank_amount = (float) ($item->bank_amount ?? 0);
+                    
+                    
 
                     if ($cash < 0) {
                         $cash = 0;
@@ -127,7 +130,7 @@ class PayrollController extends Controller
                     }
 
                     $row['cash_amount'] = $cash;
-                    $row['bank_amount'] = $gross - $cash;
+                    $row['bank_amount'] = ($cash > 0) ? $bank_amount : ($bank_amount_fix ?? 0);
                     $row['weekly_amount'] = $item->weekly_amount ?? ($row['gross_amount'] ?? 0);
                     $rowAddons = $item->addons ?? [];
                     if (is_string($rowAddons)) {
@@ -240,6 +243,7 @@ class PayrollController extends Controller
             if (! $employee) {
                 continue;
             }
+            // dd($employee);
 
             $totalDays   = $att->total_working_days ?? 6;
             $presentDays = $att->present_days ?? 0;
@@ -247,6 +251,7 @@ class PayrollController extends Controller
             $weekStart = Carbon::now()->setISODate((int)$year, (int)$week, 1);
             $dailyRate = $employee->rateAt($weekStart, 'daily_rate') ?? $employee->daily_rate ?? 0;
             $overtimeAmount = $att->overtime_amount ?? 0;
+            $bank_amount = $employee->bank_transfer_fix_amount ?? 0;
 
             // include overtime amount in gross for daily-rate employees
             $gross = ($presentDays * $dailyRate) + $overtimeAmount;
@@ -264,7 +269,7 @@ class PayrollController extends Controller
                 'overtime_amount' => $overtimeAmount,
                 'gross_amount'    => $gross,
                 'cash_amount'     => 0,
-                'bank_amount'     => $gross,
+                'bank_amount'     => $bank_amount,
             ]);
         }
 
@@ -283,6 +288,8 @@ class PayrollController extends Controller
             $normalPay = $hours * $rate;
             $otPay     = $ot * $rate * 1;  // adjust factor if you want
             $gross     = $normalPay + $otPay;
+            $bank_amount = $employee->bank_transfer_fix_amount ?? 0;
+            
 
             $rows->push([
                 'employee'        => $employee,
@@ -297,7 +304,7 @@ class PayrollController extends Controller
                 'overtime_hours'  => $ot,
                 'gross_amount'    => $gross,
                 'cash_amount'     => 0,
-                'bank_amount'     => $gross,
+                'bank_amount'     => $bank_amount,
             ]);
         }
 
@@ -322,7 +329,6 @@ class PayrollController extends Controller
         $request->replace($input);
     }
 
-    // dd($request);
 
     // Validate input
     $data = $request->validate([
@@ -416,7 +422,7 @@ class PayrollController extends Controller
     /**
      * Weekly payroll export CSV, now including day wise IN / OFF columns
      */
-    public function exportWeekCsv(Request $request)
+public function exportWeekCsv(Request $request)
 {
     $year = (int) $request->input('year', now()->year);
     $week = (int) $request->input('week', now()->weekOfYear);
@@ -513,7 +519,7 @@ foreach ($dateCols as $index => $col) {
         'K3' => 'Present Days',
         'L3' => 'Total Hours',
         'M3' => 'Overtime',
-        'N3' => 'Gross Salary',
+        'N3' => 'Weekly Total',
         'O3' => 'Cash',
         'P3' => 'Bank',
     ];
@@ -716,10 +722,10 @@ if ($item->type === 'hourly') {
 if ($item->type === 'daily_rate') {
     $sheet->setCellValue("M{$rowIndex}", $val(number_format((float)($item->overtime_amount ?? 0), 2)));
 } else {
-    $sheet->setCellValue("M{$rowIndex}", $val($item->overtime_hours));
+    $sheet->setCellValue("M{$rowIndex}", $val($item->overtime_hours) * $item->employee->hourly_rate);
 }
 
-$sheet->setCellValue("N{$rowIndex}", $val($item->gross_amount));
+$sheet->setCellValue("N{$rowIndex}", $val($item->weekly_amount));
 $sheet->setCellValue("O{$rowIndex}", $val($item->cash_amount));
 $sheet->setCellValue("P{$rowIndex}", $val($item->bank_amount));
 

@@ -165,6 +165,7 @@ public function storeDailyRate(Request $request)
         $addonsTotal = array_sum(array_map(fn($a) => (float)($a['amount'] ?? 0), $addons));
 
         $gross = $weeklyAmount + $addonsTotal;
+        $bankAmountFix = $employee ? ($employee->bank_transfer_fix_amount ?? 0) : 0;
 
         // ensure a payroll run exists for this week
         $run = PayrollRun::updateOrCreate(
@@ -181,7 +182,7 @@ public function storeDailyRate(Request $request)
             'total_hours' => null,
             'gross_amount' => $gross,
             'cash_amount' => 0,
-            'bank_amount' => $gross,
+            'bank_amount' => $bankAmountFix,
             'weekly_amount' => $weeklyAmount,
             'addons' => $addons,
             'applied_daily_rate' => $appliedDaily,
@@ -323,6 +324,7 @@ public function storeHourly(Request $request)
                 ['year' => $year, 'week_number' => $week],
                 ['status' => 'draft', 'created_by' => auth()->id(), 'generated_at' => now(), 'period_type' => 'weekly']
             );
+            $bankAmountFix = $employee ? ($employee->bank_transfer_fix_amount ?? 0) : 0;
 
             $payload = [
                 'payroll_run_id' => $run->id,
@@ -333,7 +335,7 @@ public function storeHourly(Request $request)
                 'total_hours' => $regularHours,
                 'gross_amount' => $gross,
                 'cash_amount' => 0,
-                'bank_amount' => $gross,
+                'bank_amount' => $bankAmountFix,
                 'weekly_amount' => $weeklyAmount,
                 'addons' => $addons,
                 'applied_hourly_rate' => $appliedHourly,
@@ -460,6 +462,8 @@ public function storeCombined(Request $request)
             $addonsTotal = array_sum(array_map(fn($a) => (float)($a['amount'] ?? 0), $addons));
             $gross = $weeklyAmount + $addonsTotal;
 
+            $bankAmountFix = $employee ? ($employee->bank_transfer_fix_amount ?? 0) : 0;
+
             $run = PayrollRun::updateOrCreate(
                 ['year' => $year, 'week_number' => $week],
                 ['status' => 'draft', 'created_by' => auth()->id(), 'generated_at' => now(), 'period_type' => 'weekly']
@@ -474,7 +478,7 @@ public function storeCombined(Request $request)
                 'total_hours' => null,
                 'gross_amount' => $gross,
                 'cash_amount' => 0,
-                'bank_amount' => $gross,
+                'bank_amount' => $bankAmountFix,
                 'weekly_amount' => $weeklyAmount,
                 'addons' => $addons,
                 'applied_daily_rate' => $appliedDaily,
@@ -575,6 +579,8 @@ public function storeCombined(Request $request)
                 ['status' => 'draft', 'created_by' => auth()->id(), 'generated_at' => now(), 'period_type' => 'weekly']
             );
 
+            $bankAmountFix = $employee ? ($employee->bank_transfer_fix_amount ?? 0) : 0;
+
             $payload = [
                 'payroll_run_id' => $run->id,
                 'employee_id' => $employeeId,
@@ -584,7 +590,7 @@ public function storeCombined(Request $request)
                 'total_hours' => $regularHours,
                 'gross_amount' => $gross,
                 'cash_amount' => 0,
-                'bank_amount' => $gross,
+                'bank_amount' => $bankAmountFix,
                 'weekly_amount' => $weeklyAmount,
                 'addons' => $addons,
                 'applied_hourly_rate' => $appliedHourly,

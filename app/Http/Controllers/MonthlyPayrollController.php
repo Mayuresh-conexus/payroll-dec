@@ -366,7 +366,7 @@ protected function buildMonthRows(string $month)
         $cashAmount += (float) $addonsCashTotal;
 
         $grossAmount = $weeklyAmount + $addonsTotal;
-        $bankAmount = $grossAmount - $cashAmount;
+        $bankAmount = $weeklyAmount - $cashAmount;
 
         // Merge saved monthly fields if present
         $saved = $savedMonthlyItems->get($empId . '|' . $type);

@@ -63,6 +63,14 @@
                             <th class="px-4 py-3 text-left">Status</th>
                         </tr>
                     </thead>
+                    {{-- Sort rows by employee name --}}
+                    @php
+                        $rows = $rows
+                            ->sortBy(function ($row) {
+                                return $row['employee']->name;
+                            })
+                            ->values();
+                    @endphp
                     <tbody class="divide-y divide-slate-100">
                         @forelse($rows as $index => $row)
                             @php

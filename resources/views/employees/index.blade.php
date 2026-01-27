@@ -325,7 +325,7 @@
                                 </label>
                                 <input type="text" name="bank_transfer_fix_amount" required
                                     class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
-                                    placeholder="Full name">
+                                    placeholder="Enter amount">
                             </div>
 
                             <div>
@@ -334,7 +334,7 @@
                                 </label>
                                 <input type="text" name="weekly_active_days" required
                                     class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
-                                    placeholder="Full name">
+                                    placeholder="Enter active days">
                             </div>
                         </div>
                     </div>
@@ -537,7 +537,7 @@
                                 </label>
                                 <input type="text" name="bank_transfer_fix_amount" required
                                     class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
-                                    placeholder="Full name" x-model="editingEmployee.bank_transfer_fix_amount">
+                                    placeholder="Enter amount" x-model="editingEmployee.bank_transfer_fix_amount">
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-slate-600 mb-1">
@@ -545,7 +545,7 @@
                                 </label>
                                 <input type="text" name="weekly_active_days" required
                                     class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
-                                    placeholder="Full name" x-model="editingEmployee.weekly_active_days">
+                                    placeholder="Enter active days" x-model="editingEmployee.weekly_active_days">
                             </div>
                         </div>
 

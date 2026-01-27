@@ -485,11 +485,18 @@
                             cashAmount = savedCash;
                             bankAmount = savedBank;
                         } else {
-                            console.log(savedBank);
 
-                            bankAmount = weeksInMonth > 0 ?
-                                savedBank / weeksInMonth :
-                                savedBank;
+
+                            // bankAmount = weeksInMonth > 0 ?
+                            //     savedBank / weeksInMonth :
+                            //     savedBank;
+                            if (savedBank > weeklyAmount) {
+                                bankAmount = weeklyAmount;
+                            } else {
+                                bankAmount = savedBank;
+                            }
+
+
 
                             cashAmount = weeklyAmount - bankAmount;
                         }

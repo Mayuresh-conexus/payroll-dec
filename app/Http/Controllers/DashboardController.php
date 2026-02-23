@@ -67,6 +67,46 @@ class DashboardController extends Controller
             'total_bank'  => $latestRun?->items->sum('bank_amount') ?? 0,
         ];
 
+        // Payroll trends (Last 12 Runs for chart)
+        $payrollTrends = PayrollRun::with('items')
+            ->orderByDesc('year')
+            ->orderByDesc('week_number')
+            ->take(12)
+            ->get()
+            ->reverse()
+            ->map(function ($run) {
+                return [
+                    'label' => "W{$run->week_number} '" . substr($run->year, 2),
+                    'gross' => $run->items->sum('gross_amount'),
+                    'cash'  => $run->items->sum('cash_amount'),
+                    'bank'  => $run->items->sum('bank_amount')
+                ];
+            })->values();
+
+        // Recent payroll runs (Last 6 for mini-table with week-over-week change)
+        $recentRunsRaw = PayrollRun::with('items')
+            ->orderByDesc('year')
+            ->orderByDesc('week_number')
+            ->take(6)
+            ->get();
+
+        $recentRuns = $recentRunsRaw->map(function ($run, $idx) use ($recentRunsRaw) {
+            $gross = $run->items->sum('gross_amount');
+            $prevRun = $recentRunsRaw->get($idx + 1);
+            $prevGross = $prevRun ? $prevRun->items->sum('gross_amount') : 0;
+            $change = ($prevGross > 0) ? round((($gross - $prevGross) / $prevGross) * 100, 1) : null;
+
+            return [
+                'year'        => $run->year,
+                'week'        => $run->week_number,
+                'employees'   => $run->items->count(),
+                'gross'       => $gross,
+                'cash'        => $run->items->sum('cash_amount'),
+                'bank'        => $run->items->sum('bank_amount'),
+                'change_pct'  => $change,
+            ];
+        })->values();
+
         return view('dashboard', [
             'today'           => $today,
             'currentYear'     => $currentYear,
@@ -74,6 +114,8 @@ class DashboardController extends Controller
             'employeeStats'   => $employeeStats,
             'attendanceStats' => $attendanceStats,
             'payrollStats'    => $payrollStats,
+            'payrollTrends'   => $payrollTrends,
+            'recentRuns'      => $recentRuns,
         ]);
     }
 }

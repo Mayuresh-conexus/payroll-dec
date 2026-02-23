@@ -286,6 +286,7 @@ protected function buildMonthRows(string $month)
         $addonsCashTotal = 0.0;
         $addonsList = [];
         $cashAmount = 0.0;
+        $proratedGross = 0.0;
 
         foreach ($weekData as $weekNumber => $data) {
             // weekly + addons already prorated by month in buildEmployeeWeekMap
@@ -358,15 +359,19 @@ protected function buildMonthRows(string $month)
             }
 
             if ($presentInCurrentMonth > 0) {
-                $cashAmount += ((float)$payrollItem->cash_amount / $totalPresentDays) * $presentInCurrentMonth;
+                $factor = $presentInCurrentMonth / $totalPresentDays;
+                $cashAmount += ((float)$payrollItem->cash_amount) * $factor;
+                // Prorate the full weekly gross (includes OT) the same way
+                $proratedGross += ((float)$payrollItem->gross_amount) * $factor;
             }
         }
 
         // Add addon cash that is marked cash=true (already month filtered in buildEmployeeWeekMap)
         $cashAmount += (float) $addonsCashTotal;
 
-        $grossAmount = $weeklyAmount + $addonsTotal;
-        $bankAmount = $weeklyAmount - $cashAmount;
+        // Use prorated gross from weekly items (includes OT) + monthly addons
+        $grossAmount = $proratedGross + $addonsTotal;
+        $bankAmount = max(0, $grossAmount - $cashAmount);
 
         // Merge saved monthly fields if present
         $saved = $savedMonthlyItems->get($empId . '|' . $type);

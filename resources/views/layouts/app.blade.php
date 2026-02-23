@@ -280,6 +280,13 @@
                     </div>
                 @endif
 
+                @if (session('error'))
+                    <div
+                        class="mb-4 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 text-sm">
+                        {{ session('error') }}
+                    </div>
+                @endif
+
                 @yield('content')
             </main>
         </div>

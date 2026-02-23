@@ -143,13 +143,43 @@
                 </select>
             </div>
 
-            <div class="flex items-end gap-3">
+            <div class="flex items-end gap-2">
+                {{-- Previous week --}}
+                @php
+                    $prevW = $week - 1;
+                    $prevY = $year;
+                    if ($prevW < 1) { $prevY--; $prevW = \Carbon\Carbon::create($prevY, 12, 28)->isoWeek(); }
+                @endphp
+                <a href="{{ route('attendance.index', ['year' => $prevY, 'week' => $prevW, 'tab' => 'combined']) }}"
+                   class="px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition text-sm"
+                   title="Previous week">
+                    ← Prev
+                </a>
+
                 <button type="submit"
                     class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800">
                     Load week
                 </button>
 
+                {{-- Next week --}}
+                @php
+                    $nextW = $week + 1;
+                    $nextY = $year;
+                    if ($nextW > $weeksInYear) { $nextY++; $nextW = 1; }
+                @endphp
+                <a href="{{ route('attendance.index', ['year' => $nextY, 'week' => $nextW, 'tab' => 'combined']) }}"
+                   class="px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition text-sm"
+                   title="Next week">
+                    Next →
+                </a>
 
+                {{-- Today button --}}
+                @if ($year != now()->year || $week != now()->weekOfYear)
+                    <a href="{{ route('attendance.index', ['year' => now()->year, 'week' => now()->weekOfYear, 'tab' => 'combined']) }}"
+                       class="px-3 py-2 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition text-sm font-medium">
+                        Today
+                    </a>
+                @endif
             </div>
         </form>
 

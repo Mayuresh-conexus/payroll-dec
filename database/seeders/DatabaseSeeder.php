@@ -15,23 +15,31 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-
-        $this->call([
-        EmployeeSeeder::class,
-    ]);
-    
-        // User::factory(10)->create();
-        // default test user
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
-
-        // admin user for initial setup
+        // ── Users ────────────────────────────────────────────
         User::factory()->create([
             'name' => 'Admin',
             'email' => 'admin@example.com',
-            // UserFactory uses the hashed default password 'password'
+            'role' => 'admin',
+        ]);
+
+        User::factory()->create([
+            'name' => 'Manager User',
+            'email' => 'manager@example.com',
+            'role' => 'manager',
+        ]);
+
+        User::factory()->create([
+            'name' => 'Staff User',
+            'email' => 'staff@example.com',
+            'role' => 'staff',
+        ]);
+
+        // ── Seeders (order matters: employees → rates → attendance → payroll)
+        $this->call([
+            EmployeeSeeder::class ,
+            EmployeeRateSeeder::class ,
+            AttendanceSeeder::class ,
+            PayrollSeeder::class ,
         ]);
     }
 }

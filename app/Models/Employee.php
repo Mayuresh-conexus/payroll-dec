@@ -7,11 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Carbon\Carbon;
 use App\Models\EmployeeRate;
-use Illuminate\Validation\ValidationException;
+use App\Traits\Auditable;
 
 class Employee extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, Auditable;
 
     protected $table = 'employees';
 
@@ -67,12 +67,6 @@ class Employee extends Model
 
     protected static function booted()
     {
-        static::updating(function ($employee) {
-            if ($employee->isDirty('type')) {
-                throw ValidationException::withMessages([
-                    'type' => 'Changing employee type is not allowed. Use the Change Type action.'
-                ]);
-            }
-        });
+        // Model events can be registered here
     }
 }

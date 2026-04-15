@@ -3,30 +3,40 @@
 namespace App\Http\Controllers;
 
 use App\Models\Employee;
+use App\Http\Requests\StoreEmployeeRequest;
+use App\Http\Requests\UpdateEmployeeRequest;
 use Illuminate\Http\Request;
 
 class EmployeeController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $employees = Employee::orderBy('id', 'desc')->paginate(10);
+        $query = Employee::orderBy('id', 'desc');
+
+        // MISSING-03: Search and filter
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('employee_code', 'like', "%{$search}%")
+                  ->orWhere('department', 'like', "%{$search}%");
+            });
+        }
+
+        if ($type = $request->input('type')) {
+            $query->where('type', $type);
+        }
+
+        if ($request->filled('status')) {
+            $query->where('is_active', $request->input('status') === 'active' ? 1 : 0);
+        }
+
+        $employees = $query->paginate(10)->withQueryString();
         return view('employees.index', compact('employees'));
     }
 
-    public function store(Request $request)
+    public function store(StoreEmployeeRequest $request)
     {
-        $data = $request->validate([
-            'employee_code' => 'required|string|max:50|unique:employees,employee_code',
-            'name'          => 'required|string|max:255',
-            'joining_date'  => 'nullable|date',
-            'department'    => 'nullable|string|max:100',
-            'type'          => 'required|in:daily_rate,hourly',
-            'daily_rate'    => 'required_if:type,daily_rate|nullable|numeric',
-            'hourly_rate'   => 'required_if:type,hourly|nullable|numeric',
-            'hours_per_day' => 'required_if:type,hourly|nullable|numeric',
-            'bank_transfer_fix_amount' => 'nullable|numeric',
-            'weekly_active_days' => 'nullable|numeric',
-        ]);
+        $data = $request->validated();
 
         // create employee record
         $employee = Employee::create($data);
@@ -64,24 +74,15 @@ class EmployeeController extends Controller
         return back()->with('success', 'Employee created successfully');
     }
 
-   public function update(Request $request, $id)
-{
-    $employee = Employee::findOrFail($id);
+    public function update(UpdateEmployeeRequest $request, $id)
+    {
+        $employee = Employee::findOrFail($id);
 
-    $data = $request->validate([
-        'employee_code' => 'required|string|max:50|unique:employees,employee_code,' . $employee->id,
-        'name'          => 'required|string|max:255',
-        'joining_date'  => 'nullable|date',
-        'department'    => 'nullable|string|max:100',
-        // lock type to the existing value on the employee record
-        'type'          => 'required|in:' . $employee->type,
-        'daily_rate'    => 'required_if:type,daily_rate|nullable|numeric',
-        'hourly_rate'   => 'required_if:type,hourly|nullable|numeric',
-        'hours_per_day' => 'required_if:type,hourly|nullable|numeric',
-        'bank_transfer_fix_amount' => 'nullable|numeric',
-        'weekly_active_days' => 'nullable|numeric',
-        'is_active'     => 'nullable|boolean',
-    ]);
+        if ($request->input('type') !== $employee->type) {
+            return back()->withErrors(['type' => 'Employee type cannot be changed.']);
+        }
+
+        $data = $request->validated();
 
     // force boolean from checkbox 0 or 1
     $data['is_active'] = $request->boolean('is_active');
@@ -134,10 +135,7 @@ class EmployeeController extends Controller
     {
         $employee = Employee::findOrFail($id);
 
-        // If you want soft delete, ensure model uses SoftDeletes
-        // $employee->delete();
-
-        $employee->delete(); // hard delete
+        $employee->delete(); // Soft delete — deleted_at is set; record is retained in DB
 
         return back()->with('success', 'Employee deleted successfully');
     }

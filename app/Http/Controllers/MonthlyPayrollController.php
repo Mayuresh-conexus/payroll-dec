@@ -412,7 +412,6 @@ protected function buildMonthRows(string $month)
             'items.*.transfer_status' => 'nullable|in:pending,completed,failed',
             'items.*.note' => 'nullable|string',
         ]);
-        \Log::debug('Request Data:', $data);
 
         $month = $data['month'];
         $monthFormatted = str_replace('-', '', $month);
@@ -658,4 +657,29 @@ protected function buildMonthRows(string $month)
         $colLetter = Coordinate::stringFromColumnIndex($colIndex);
         $sheet->setCellValue("{$colLetter}{$rowIndex}", $value);
     }
+
+    /**
+     * MISSING-02: Finalize a monthly payroll run (set status = 'final').
+     */
+    public function finalizeMonth(Request $request)
+    {
+        $data = $request->validate([
+            'month' => 'required|string|regex:/^\d{4}-\d{2}$/',
+        ]);
+
+        $run = PayrollRun::where('period_type', 'monthly')
+            ->whereRaw("DATE_FORMAT(period_start, '%Y-%m') = ?", [$data['month']])
+            ->first();
+
+        if (!$run) {
+            return back()->withErrors(['finalize' => 'No payroll run found for this month. Save payroll first.']);
+        }
+
+        $run->status = 'final';
+        $run->save();
+
+        return redirect()->route('payroll.monthly.index', ['month' => $data['month']])
+            ->with('success', 'Monthly payroll for ' . $data['month'] . ' has been finalized and locked.');
+    }
 }
+

@@ -7,6 +7,8 @@ use App\Models\DailyRateAttendance;
 use App\Models\HourlyAttendance;
 use App\Models\PayrollRun;
 use App\Models\PayrollItem;
+use App\Services\PayrollService;
+use App\Http\Requests\SaveWeekPayrollRequest;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Carbon\Carbon;
@@ -21,403 +23,130 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 class PayrollController extends Controller
 {
     public function index(Request $request)
-{
-    $year = (int) $request->input('year', now()->year);
-    $week = (int) $request->input('week', now()->weekOfYear);
-    $weeksInYear = Carbon::create($year, 12, 28)->isoWeek(); // to check 53 weeks
-    $month = Carbon::now()
-        ->setISODate($year, $week)
-        ->month;
+    {
+        $year        = (int) $request->input('year', now()->year);
+        $week        = (int) $request->input('week', now()->weekOfYear);
+        $weeksInYear = Carbon::create($year, 12, 28)->isoWeek();
+        $month       = Carbon::now()->setISODate($year, $week)->month;
 
-    // 1. Check lock status per type for this week
-    $dailyLockedWeek = DailyRateAttendance::where('year', $year)
-        ->where('week_number', $week)
-        ->where('locked', true)
-        ->exists();
+        $dailyLockedWeek  = DailyRateAttendance::where('year', $year)
+            ->where('week_number', $week)->where('locked', true)->exists();
+        $hourlyLockedWeek = HourlyAttendance::where('year', $year)
+            ->where('week_number', $week)->where('locked', true)->exists();
 
-    $hourlyLockedWeek = HourlyAttendance::where('year', $year)
-        ->where('week_number', $week)
-        ->where('locked', true)
-        ->exists();
+        $run = PayrollRun::with('items.employee')
+            ->where('year', $year)->where('week_number', $week)->first();
 
-    // 2. Load any existing payroll run
-    $run = PayrollRun::with('items.employee')
-        ->where('year', $year)
-        ->where('week_number', $week)->first();
-//  
-    // 3. Always start from attendance based rows (fresh gross etc)
-    $rows = $this->buildRowsFromAttendance($year, $week);
+        $service = app(PayrollService::class);
+        $rawRows = $service->buildRowsFromAttendance($year, $week);
+        $rows    = $service->mergeWithPayrollRun($rawRows, $run, $dailyLockedWeek, $hourlyLockedWeek);
 
-    // Index current rows by employee + type
-    $rowsByKey = $rows->keyBy(function (array $row) {
-        $emp = $row['employee'];
-        return ($emp ? $emp->id : 'emp0') . '|' . $row['type'];
-    });
+        $totals = [
+            'gross' => $rows->sum('gross_amount'),
+            'cash'  => $rows->sum('cash_amount'),
+            'bank'  => $rows->sum('bank_amount'),
+        ];
 
-    if ($run) {
-        foreach ($run->items as $item) {
-            $employee = $item->employee;
-            if (! $employee) {
-                continue;
-            }
-
-            $key = $employee->id . '|' . $item->type;
-
-            $isDaily  = $item->type === 'daily_rate';
-            $isHourly = $item->type === 'hourly';
-
-            $usePayrollOnlyForThisType =
-                ($isDaily && $dailyLockedWeek) ||
-                ($isHourly && $hourlyLockedWeek);
-
-            if ($usePayrollOnlyForThisType) {
-                // 4a. Attendance locked: trust payroll completely for this type
-                $gross = (float) ($item->gross_amount ?? 0);
-                $cash  = (float) ($item->cash_amount ?? 0);
-
-                if ($cash < 0) {
-                    $cash = 0;
-                }
-                if ($cash > $gross) {
-                    $cash = $gross;
-                }
-
-                // when payroll run is trusted for this type, map overtime field appropriately
-                if ($isDaily) {
-                    $overtimeField = 'overtime_amount';
-                } else {
-                    $overtimeField = 'overtime_hours';
-                }
-
-                // decode addons if stored as JSON string so view always receives array
-                $itemAddons = $item->addons ?? [];
-                if (is_string($itemAddons)) {
-                    $itemAddons = json_decode($itemAddons, true) ?: [];
-                }
-
-                $rowsByKey[$key] = [
-                    'employee'        => $employee,
-                    'type'            => $item->type,
-                    'total_days'      => $item->total_days,
-                    'present_days'    => $item->present_days,
-                    'total_hours'     => $item->total_hours,
-                    // map payroll item's overtime to the appropriate row key
-                    $overtimeField   => $item->overtime_hours,
-                    // preserve sunday hours from attendance row when available
-                    'sun_hours'       => $rowsByKey[$key]['sun_hours'] ?? 0,
-                    'gross_amount'    => $gross,
-                    'cash_amount'     => $cash,
-                    'bank_amount'     => $gross - $cash,
-                    'weekly_amount'   => $item->weekly_amount ?? $gross,
-                    'addons'          => $itemAddons,
-                ];
-            } else {
-                // 4b. Attendance not locked: use fresh attendance row, but cash from payroll if present
-                if ($rowsByKey->has($key)) {
-                    $row   = $rowsByKey->get($key);
-                    $gross = (float) ($row['gross_amount'] ?? 0);
-                    $cash  = (float) ($item->cash_amount ?? 0);
-                    $bank_amount_fix = $employee->bank_transfer_fix_amount ?? 0;
-                    $bank_amount = (float) ($item->bank_amount ?? 0);
-                    
-                    
-
-                    if ($cash < 0) {
-                        $cash = 0;
-                    }
-                    if ($cash > $gross) {
-                        $cash = $gross;
-                    }
-
-                    $row['cash_amount'] = $cash;
-                    $row['bank_amount'] = ($cash > 0) ? $bank_amount : ($bank_amount_fix ?? 0);
-                    $row['weekly_amount'] = $item->weekly_amount ?? ($row['gross_amount'] ?? 0);
-                    $rowAddons = $item->addons ?? [];
-                    if (is_string($rowAddons)) {
-                        $rowAddons = json_decode($rowAddons, true) ?: [];
-                    }
-                    $row['addons'] = $rowAddons;
-
-                    $rowsByKey[$key] = $row;
-                } else {
-                    // Safety: payroll row exists but attendance row missing
-                    $gross = (float) ($item->gross_amount ?? 0);
-                    $cash  = (float) ($item->cash_amount ?? 0);
-
-                    if ($cash < 0) {
-                        $cash = 0;
-                    }
-                    if ($cash > $gross) {
-                        $cash = $gross;
-                    }
-
-                    // ensure missing attendance row maps overtime into the reasonable key
-                    if ($item->type === 'daily_rate') {
-                        $overtimeKey = 'overtime_amount';
-                    } else {
-                        $overtimeKey = 'overtime_hours';
-                    }
-
-                    $itemAddons2 = $item->addons ?? [];
-                    if (is_string($itemAddons2)) {
-                        $itemAddons2 = json_decode($itemAddons2, true) ?: [];
-                    }
-
-                    $rowsByKey[$key] = [
-                        'employee'        => $employee,
-                        'type'            => $item->type,
-                        'total_days'      => $item->total_days,
-                        'present_days'    => $item->present_days,
-                        'total_hours'     => $item->total_hours,
-                        $overtimeKey     => $item->overtime_hours,
-                        'sun_hours'       => 0,
-                        'gross_amount'    => $gross,
-                        'cash_amount'     => $cash,
-                        'bank_amount'     => $gross - $cash,
-                        'weekly_amount'   => $item->weekly_amount ?? $gross,
-                        'addons'          => $itemAddons2,
-                    ];
-                }
-            }
-        }
-    } else {
-        // 5. No run at all: bank = gross - cash (cash is 0 by default)
-        $rowsByKey = $rowsByKey->map(function (array $row) {
-            $gross = (float) ($row['gross_amount'] ?? 0);
-            $cash  = (float) ($row['cash_amount'] ?? 0);
-
-            if ($cash < 0) {
-                $cash = 0;
-            }
-            if ($cash > $gross) {
-                $cash = $gross;
-            }
-
-            $row['cash_amount'] = $cash;
-            $row['bank_amount'] = $gross - $cash;
-            // when no payroll run exists yet, treat the attendance gross as the weekly_amount
-            $row['weekly_amount'] = $row['weekly_amount'] ?? $row['gross_amount'] ?? 0;
-            $row['addons'] = $row['addons'] ?? [];
-
-            return $row;
-        });
+        return view('payroll.index', [
+            'year'        => $year,
+            'week'        => $week,
+            'month'       => $month,
+            'run'         => $run,
+            'rows'        => $rows,
+            'totals'      => $totals,
+            'weeksInYear' => $weeksInYear,
+        ]);
     }
 
-    // Final rows collection
-    $rows = $rowsByKey->values();
 
-    $totals = [
-        'gross' => $rows->sum('gross_amount'),
-        'cash'  => $rows->sum('cash_amount'),
-        'bank'  => $rows->sum('bank_amount'),
-    ];
-
-    return view('payroll.index', [
-        'year'   => $year,
-        'week'   => $week,
-        'month'  => $month,
-        'run'    => $run,
-        'rows'   => $rows,
-        'totals' => $totals,
-        'weeksInYear' => $weeksInYear,
-    ]);
-}
-
-
+    // buildRowsFromAttendance is now in PayrollService — kept here for
+    // backward-compat in case any other code references it directly.
     protected function buildRowsFromAttendance(int $year, int $week)
     {
-        $dailyAtt = DailyRateAttendance::with('employee')
-            ->where('year', $year)
-            ->where('week_number', $week)
-            ->get();
-
-        $hourlyAtt = HourlyAttendance::with('employee')
-            ->where('year', $year)
-            ->where('week_number', $week)
-            ->get();
-
-        $rows = collect();
-
-        foreach ($dailyAtt as $att) {
-            $employee = $att->employee;
-            if (! $employee) {
-                continue;
-            }
-            // dd($employee);
-
-            $totalDays   = $att->total_working_days ?? 6;
-            $presentDays = $att->present_days ?? 0;
-            // use historical rate effective for the week start when available
-            $weekStart = Carbon::now()->setISODate((int)$year, (int)$week, 1);
-            $dailyRate = $employee->rateAt($weekStart, 'daily_rate') ?? $employee->daily_rate ?? 0;
-            $overtimeAmount = $att->overtime_amount ?? 0;
-            $bank_amount = $employee->bank_transfer_fix_amount ?? 0;
-
-            // include overtime amount in gross for daily-rate employees
-            $gross = ($presentDays * $dailyRate) + $overtimeAmount;
-
-            $rows->push([
-                'employee'        => $employee,
-                'type'            => 'daily_rate',
-                'total_days'      => $totalDays,
-                'present_days'    => $presentDays,
-                // whether sunday was marked/present in this attendance week
-                'sun_present'     => (!empty($att->days_map) && isset($att->days_map['sun']) && (int)$att->days_map['sun'] === 1),
-                'total_hours'     => null,
-                'sun_hours'       => null,
-                // daily attendance stores overtime as an amount
-                'overtime_amount' => $overtimeAmount,
-                'gross_amount'    => $gross,
-                'cash_amount'     => 0,
-                'bank_amount'     => $bank_amount,
-            ]);
-        }
-
-        foreach ($hourlyAtt as $att) {
-            $employee = $att->employee;
-            if (! $employee) {
-                continue;
-            }
-
-            $hours = $att->total_hours ?? 0;
-            $ot    = $att->overtime_hours ?? 0;
-            // historical hourly rate
-            $weekStart = Carbon::now()->setISODate((int)$year, (int)$week, 1);
-            $rate = $employee->rateAt($weekStart, 'hourly_rate') ?? $employee->hourly_rate ?? 0;
-
-            $normalPay = $hours * $rate;
-            $otPay     = $ot * $rate * 1;  // adjust factor if you want
-            $gross     = $normalPay + $otPay;
-            $bank_amount = $employee->bank_transfer_fix_amount ?? 0;
-            
-
-            $rows->push([
-                'employee'        => $employee,
-                'type'            => 'hourly',
-                'total_days'      => null,
-                'present_days'    => null,
-                // whether sunday had hours recorded
-                'sun_present'     => (!empty($att->hours_map) && isset($att->hours_map['sun']) && (float)$att->hours_map['sun'] > 0),
-                // actual hours recorded for Sunday (0 when none)
-                'sun_hours'       => (!empty($att->hours_map) && isset($att->hours_map['sun']) ? (float)$att->hours_map['sun'] : 0),
-                'total_hours'     => $hours,
-                'overtime_hours'  => $ot,
-                'gross_amount'    => $gross,
-                'cash_amount'     => 0,
-                'bank_amount'     => $bank_amount,
-            ]);
-        }
-
-        return $rows;
-    }
-
-   public function saveWeek(Request $request)
-{
-    // Map employee object to employee_id if needed
-    $input = $request->all();
-    if (!empty($input['items']) && is_array($input['items'])) {
-        foreach ($input['items'] as $k => $it) {
-            if (empty($it['employee_id'])) {
-                if (!empty($it['employee']) && is_array($it['employee']) && !empty($it['employee']['id'])) {
-                    $input['items'][$k]['employee_id'] = $it['employee']['id'];
-                }
-                if (!empty($it['employee']) && is_object($it['employee']) && !empty($it['employee']->id)) {
-                    $input['items'][$k]['employee_id'] = $it['employee']->id;
-                }
-            }
-        }
-        $request->replace($input);
+        return app(PayrollService::class)->buildRowsFromAttendance($year, $week);
     }
 
 
-    // Validate input
-    $data = $request->validate([
-        'year' => 'required|integer',
-        'week' => 'required|integer|min:1|max:52',
-        'items' => 'required|array',
-        'items.*.employee_id' => 'required|integer|exists:employees,id',
-        'items.*.type' => 'required|in:daily_rate,hourly',
-        'items.*.total_days' => 'nullable|integer',
-        'items.*.present_days' => 'nullable|integer',
-        'items.*.total_hours' => 'nullable|numeric',
-        'items.*.overtime' => 'nullable|numeric',
-        'items.*.cash' => 'nullable|numeric',
-        'items.*.bank' => 'nullable|numeric',
-        'items.*.weekly_amount' => 'nullable|numeric',
-    ]);
+   public function saveWeek(SaveWeekPayrollRequest $request)
+    {
+        $data = $request->validated();
 
-    // Create or get payroll run
-    $run = PayrollRun::updateOrCreate(
-        ['year' => $data['year'], 'week_number' => $data['week']],
-        [
-            'status' => 'draft',
-            'created_by' => auth()->id(),
-            'generated_at' => now(),
-        ]
-    );
+        $run = PayrollRun::updateOrCreate(
+            ['year' => $data['year'], 'week_number' => $data['week']],
+            [
+                'status'       => 'draft',
+                'created_by'   => auth()->id(),
+                'generated_at' => now(),
+            ]
+        );
 
-    foreach ($data['items'] as $row) {
-    $weeklyAmount = (float) ($row['weekly_amount'] ?? 0);
-    $cash = (float) ($row['cash'] ?? 0);
-    $bank = (float) ($row['bank'] ?? max(0, $weeklyAmount - $cash));
+        foreach ($data['items'] as $row) {
+            $weeklyAmount = (float) ($row['weekly_amount'] ?? 0);
+            $cash         = (float) ($row['cash'] ?? 0);
+            $bank         = (float) ($row['bank'] ?? max(0, $weeklyAmount - $cash));
 
-    // Clamp to ensure cash + bank <= weekly_amount
-    if ($cash + $bank > $weeklyAmount) {
-        $bank = max(0, $weeklyAmount - $cash);
+            if ($cash + $bank > $weeklyAmount) {
+                $bank = max(0, $weeklyAmount - $cash);
+            }
+
+            $emp       = Employee::find($row['employee_id']);
+            $weekStart = Carbon::now()->setISODate($data['year'], $data['week'], 1);
+
+            PayrollItem::updateOrCreate(
+                ['payroll_run_id' => $run->id, 'employee_id' => $row['employee_id']],
+                [
+                    'type'                  => $row['type'],
+                    'total_days'            => $row['total_days'] ?? null,
+                    'present_days'          => $row['present_days'] ?? null,
+                    'total_hours'           => $row['total_hours'] ?? null,
+                    'weekly_amount'         => $weeklyAmount,
+                    'gross_amount'          => $weeklyAmount,
+                    'cash_amount'           => $cash,
+                    'bank_amount'           => $bank,
+                    'overtime_amount'       => $row['type'] === 'daily_rate' ? ($row['overtime'] ?? 0) : null,
+                    'overtime_hours'        => $row['type'] === 'hourly'     ? ($row['overtime'] ?? 0) : null,
+                    'applied_daily_rate'    => $emp ? ($emp->rateAt($weekStart, 'daily_rate')   ?? $emp->daily_rate)   : null,
+                    'applied_hourly_rate'   => $emp ? ($emp->rateAt($weekStart, 'hourly_rate')  ?? $emp->hourly_rate)  : null,
+                    'applied_hours_per_day' => $emp ? ($emp->rateAt($weekStart, 'hours_per_day') ?? $emp->hours_per_day) : null,
+                ]
+            );
+        }
+
+        return redirect()->route('payroll.index', [
+            'year' => $data['year'],
+            'week' => $data['week'],
+        ])->with('success', 'Weekly payroll saved');
     }
 
-    $emp = Employee::find($row['employee_id']);
-    $weekStart = Carbon::now()->setISODate($data['year'], $data['week'], 1);
 
+    /**
+     * MISSING-02: Finalize a weekly payroll run (set status = 'final').
+     * Once finalized, the payroll form is read-only.
+     */
+    public function finalizeWeek(Request $request)
+    {
+        $data = $request->validate([
+            'year' => 'required|integer',
+            'week' => 'required|integer|min:1|max:53',
+        ]);
 
-    PayrollItem::updateOrCreate(
-        [
-            'payroll_run_id' => $run->id,
-            'employee_id' => $row['employee_id'],
-        ],
-        [
-            'type' => $row['type'],
-            'total_days' => $row['total_days'] ?? null,
-            'present_days' => $row['present_days'] ?? null,
-            'total_hours' => $row['total_hours'] ?? null,
-            'weekly_amount' => $weeklyAmount,
-            'gross_amount' => $weeklyAmount, // Treat weekly_amount as gross
-            'cash_amount' => $cash,
-            'bank_amount' => $bank,
-            'overtime_amount' => $row['type'] === 'daily_rate' ? ($row['overtime'] ?? 0) : null,
-            'overtime_hours' => $row['type'] === 'hourly' ? ($row['overtime'] ?? 0) : null,
-            'applied_daily_rate' => $emp ? ($emp->rateAt($weekStart, 'daily_rate') ?? $emp->daily_rate) : null,
-            'applied_hourly_rate' => $emp ? ($emp->rateAt($weekStart, 'hourly_rate') ?? $emp->hourly_rate) : null,
-            'applied_hours_per_day' => $emp ? ($emp->rateAt($weekStart, 'hours_per_day') ?? $emp->hours_per_day) : null,
-        ]
-    );
-}
+        $run = PayrollRun::where('period_type', 'weekly')
+            ->where('year', $data['year'])
+            ->where('week_number', $data['week'])
+            ->first();
 
+        if (!$run) {
+            return back()->withErrors(['finalize' => 'No payroll run found for this week. Save payroll first.']);
+        }
 
-    // Return updated items for AJAX
-    $items = PayrollItem::where('payroll_run_id', $run->id)
-    ->whereIn('employee_id', array_column($data['items'], 'employee_id'))
-    ->get()
-    ->map(function (PayrollItem $it) {
-        $arr = $it->toArray();
+        $run->status = 'final';
+        $run->save();
 
-        // Ignore addons completely
-        return [
-            'employee_id' => $arr['employee_id'],
-            'type' => $arr['type'],
-            'weekly_amount' => (float) $arr['weekly_amount'],
-            'cash' => (float) $arr['cash_amount'],
-            'bank' => (float) $arr['bank_amount'],
-        ];
-    });
-
-
-
-    return redirect()->route('payroll.index', [
-        'year' => $data['year'],
-        'week' => $data['week'],
-    ])->with('success', 'Weekly payroll saved');
-}
+        return redirect()->route('payroll.index', [
+            'year' => $data['year'],
+            'week' => $data['week'],
+        ])->with('success', 'Payroll for week ' . $data['week'] . ' has been finalized and is now locked.');
+    }
 
     /**
      * Weekly payroll export CSV, now including day wise IN / OFF columns
@@ -804,11 +533,15 @@ $sheet->getStyle("K{$rowIndex}:P{$rowIndex}")
         $year = (int) $request->input('year', now()->year);
         $week = (int) $request->input('week', now()->weekOfYear);
 
-        $employees = Employee::where('type', 'daily_rate')
-            ->orderBy('name')
-            ->get();
+        // MISSING-10: Include both daily and hourly employees
+        $employees = Employee::orderBy('name')->get();
 
-        $attendance = DailyRateAttendance::where('year', $year)
+        $dailyAttendance = DailyRateAttendance::where('year', $year)
+            ->where('week_number', $week)
+            ->get()
+            ->keyBy('employee_id');
+
+        $hourlyAttendance = HourlyAttendance::where('year', $year)
             ->where('week_number', $week)
             ->get()
             ->keyBy('employee_id');
@@ -822,13 +555,14 @@ $sheet->getStyle("K{$rowIndex}:P{$rowIndex}")
 
         $dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
-        $callback = function () use ($employees, $attendance, $year, $week, $dayKeys) {
+        $callback = function () use ($employees, $dailyAttendance, $hourlyAttendance, $year, $week, $dayKeys) {
             $handle = fopen('php://output', 'w');
 
             fputcsv($handle, [
                 'Employee Code',
                 'Name',
                 'Department',
+                'Type',
                 'Year',
                 'Week',
                 'Mon',
@@ -838,48 +572,54 @@ $sheet->getStyle("K{$rowIndex}:P{$rowIndex}")
                 'Fri',
                 'Sat',
                 'Sun',
-                'Present days',
-                'Absent days',
+                'Present',
+                'Absent / Off',
             ]);
 
             foreach ($employees as $employee) {
-                $att = $attendance[$employee->id] ?? null;
-
-                $daysMap = [
-                    'mon' => 1,
-                    'tue' => 1,
-                    'wed' => 1,
-                    'thu' => 1,
-                    'fri' => 1,
-                    'sat' => 1,
-                    'sun' => 0,
-                ];
-
-                if ($att && is_array($att->days_map)) {
-                    $daysMap = array_merge($daysMap, $att->days_map);
-                }
-
-                $presentDays = $att->present_days ?? collect($daysMap)->only([
-                    'mon', 'tue', 'wed', 'thu', 'fri', 'sat',
-                ])->sum();
-
-                $absentDays = max(0, 6 - $presentDays);
-
                 $row = [
                     $employee->employee_code,
                     $employee->name,
                     $employee->department,
+                    $employee->type === 'daily_rate' ? 'Daily' : 'Hourly',
                     $year,
                     $week,
                 ];
 
-                foreach ($dayKeys as $key) {
-                    $val = $daysMap[$key] ?? 0;
-                    $row[] = $key === 'sun' ? 'OFF' : ($val ? 'IN' : 'OFF');
-                }
+                if ($employee->type === 'daily_rate') {
+                    $att = $dailyAttendance[$employee->id] ?? null;
+                    $daysMap = [
+                        'mon' => 1, 'tue' => 1, 'wed' => 1,
+                        'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0,
+                    ];
+                    if ($att && is_array($att->days_map)) {
+                        $daysMap = array_merge($daysMap, $att->days_map);
+                    }
+                    $presentDays = $att->present_days ?? collect($daysMap)->only(['mon','tue','wed','thu','fri','sat'])->sum();
+                    $absentDays  = max(0, 6 - $presentDays);
 
-                $row[] = $presentDays;
-                $row[] = $absentDays;
+                    foreach ($dayKeys as $key) {
+                        $val = $daysMap[$key] ?? 0;
+                        $row[] = $key === 'sun' ? ($val ? 'SUN' : 'OFF') : ($val ? 'IN' : 'OFF');
+                    }
+                    $row[] = $presentDays;
+                    $row[] = $absentDays;
+                } else {
+                    // Hourly: show hours worked per day
+                    $att = $hourlyAttendance[$employee->id] ?? null;
+                    $hoursMap = $att && is_array($att->hours_map) ? $att->hours_map : [];
+                    $totalHours  = 0;
+                    $daysPresent = 0;
+
+                    foreach ($dayKeys as $key) {
+                        $hrs = (float) ($hoursMap[$key] ?? 0);
+                        $row[] = $hrs > 0 ? number_format($hrs, 2) . 'h' : 'OFF';
+                        $totalHours += $hrs;
+                        if ($hrs > 0) $daysPresent++;
+                    }
+                    $row[] = "{$daysPresent} days / " . number_format($totalHours, 2) . 'h';
+                    $row[] = max(0, 7 - $daysPresent);
+                }
 
                 fputcsv($handle, $row);
             }
@@ -889,4 +629,5 @@ $sheet->getStyle("K{$rowIndex}:P{$rowIndex}")
 
         return response()->streamDownload($callback, $filename, $headers);
     }
+
 }

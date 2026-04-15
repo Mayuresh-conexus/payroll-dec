@@ -2,43 +2,48 @@
 
 @section('title', 'Monthly payroll')
 @section('page_title', 'Monthly payroll')
+@section('page_header', 'Monthly Payroll')
+@section('page_subtitle', 'Summarise and review all weekly payroll runs within a calendar month.')
+
+@section('page_action')
+    <form method="get" action="{{ route('payroll.monthly.index') }}" class="flex flex-wrap items-center gap-3">
+        <label class="sr-only">Month</label>
+        <input type="month" name="month" value="{{ $month }}" class="rounded-lg border-slate-300 shadow-sm text-sm py-2 px-3 focus:ring-slate-500 focus:border-slate-500">
+        
+        <button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition shadow-sm">
+            Load
+        </button>
+
+        @php
+            $weekSet = [];
+            foreach ($rows as $row) {
+                preg_match_all('/\d+/', $row['weeks_display'] ?? '', $m);
+                foreach ($m[0] as $w) {
+                    $weekSet[(int) $w] = true;
+                }
+            }
+            $weeks = array_keys($weekSet);
+            sort($weeks);
+        @endphp
+
+        @if(!empty($weeks))
+            <div class="hidden sm:flex flex-wrap gap-1 items-center ml-2 mr-2">
+                @foreach ($weeks as $w)
+                    <span class="px-2 py-0.5 font-medium rounded text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-100">WK {{ $w }}</span>
+                @endforeach
+            </div>
+        @endif
+
+        <a href="{{ route('payroll.exportMonthXlsx', ['month' => $month]) }}"
+           class="px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition">
+            Export XLSX
+        </a>
+    </form>
+@endsection
 
 @section('content')
     <div x-data="monthlyNotes()" x-init="init({{ json_encode($rows->map(function ($r) {return $r['note'] ?? '';})->values()) }})" class="space-y-6">
 
-        <form method="get" action="{{ route('payroll.monthly.index') }}"
-            class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center gap-4 text-sm">
-            <div>
-                <label class="block text-xs font-semibold text-slate-600 mb-1">Month</label>
-                <input type="month" name="month" value="{{ $month }}"
-                    class="rounded-lg border-slate-200 text-sm focus:ring-slate-500 focus:border-slate-500">
-                <button type="submit"
-                    class="px-4 py-2 ml-2 rounded-lg bg-slate-900 text-white text-sm font-medium">Load</button>
-            </div>
-            <div class="ml-auto flex items-center">
-                @php
-                    $weekSet = [];
-                    foreach ($rows as $row) {
-                        preg_match_all('/\d+/', $row['weeks_display'] ?? '', $m);
-                        foreach ($m[0] as $w) {
-                            $weekSet[(int) $w] = true;
-                        }
-                    }
-                    $weeks = array_keys($weekSet);
-                    sort($weeks);
-                    $uniqueWeeksDisplay = collect($weeks)->map(fn($w) => 'wk' . $w)->implode(' ');
-                @endphp
-                <div class="flex flex-wrap gap-2 items-center">
-                    @foreach ($weeks as $w)
-                        <span
-                            class="px-3 py-1 font-medium rounded-full text-xs bg-slate-900 text-white">Week{{ $w }}</span>
-                    @endforeach
-                </div>
-                <a href="{{ route('payroll.exportMonthXlsx', ['month' => $month]) }}"
-                    class="ml-2 px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50">Export
-                    XLSX</a>
-            </div>
-        </form>
 
         <form action="{{ route('payroll.saveMonth') }}" method="post"
             class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">

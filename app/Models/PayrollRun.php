@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Model;
 
 class PayrollRun extends Model
 {
+    use Auditable;
     protected $fillable = [
         'year',
         'week_number',

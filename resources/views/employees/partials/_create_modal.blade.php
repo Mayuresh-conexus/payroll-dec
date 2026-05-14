@@ -63,7 +63,7 @@
                     <div>
                         <label class="block text-xs font-medium text-slate-600 mb-1">Daily rate</label>
                         <div class="relative">
-                            <span class="absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">₹</span>
+                            <span class="absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">€</span>
                             <input type="number" step="0.01" name="daily_rate"
                                 x-bind:disabled="empType !== 'daily_rate'"
                                 class="w-full rounded-lg border border-slate-200 pl-7 pr-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
@@ -74,7 +74,7 @@
                     <div>
                         <label class="block text-xs font-medium text-slate-600 mb-1">Hourly rate</label>
                         <div class="relative" x-show="empType === 'hourly'">
-                            <span class="absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">₹</span>
+                            <span class="absolute inset-y-0 left-3 flex items-center text-xs text-slate-400">€</span>
                             <input type="number" step="0.01" name="hourly_rate"
                                 x-bind:disabled="empType !== 'hourly'"
                                 class="w-full rounded-lg border border-slate-200 pl-7 pr-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"

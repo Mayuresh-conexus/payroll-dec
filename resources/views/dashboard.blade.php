@@ -78,7 +78,7 @@ Year {{ $currentYear }} - Week {{ $currentWeek }} <span class="mx-1 text-slate-3
                     </div>
                     <div class="flex items-end gap-3 mt-1">
                         <p class="text-3xl font-bold text-slate-800 leading-none">
-                            <span class="text-xl text-slate-400 mr-0.5 font-medium">₹</span>{{ number_format($payrollStats['total_gross'] ?? 0) }}
+                            <span class="text-xl text-slate-400 mr-0.5 font-medium">€</span>{{ number_format($payrollStats['total_gross'] ?? 0) }}
                         </p>
                         <div class="flex flex-col text-[10px] text-slate-400 font-medium pb-0.5 uppercase tracking-wider">
                             <span><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1"></span> CSH {{ number_format($payrollStats['total_cash'] ?? 0) }}</span>
@@ -182,7 +182,7 @@ Year {{ $currentYear }} - Week {{ $currentWeek }} <span class="mx-1 text-slate-3
                                     Latest snapshot (W{{ $payrollStats['week'] }}/{{ $payrollStats['year'] }})
                                 </p>
                                 <p class="text-[11px] text-slate-600">
-                                    Saved with <span class="font-bold text-slate-900 pb-0.5">₹{{ number_format($payrollStats['total_gross'] ?? 0) }}</span> total gross split into cash/bank.
+                                    Saved with <span class="font-bold text-slate-900 pb-0.5">€{{ number_format($payrollStats['total_gross'] ?? 0) }}</span> total gross split into cash/bank.
                                 </p>
                             </div>
                         @else

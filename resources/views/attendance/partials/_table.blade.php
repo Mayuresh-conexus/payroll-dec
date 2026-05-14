@@ -163,7 +163,7 @@
                                                     @if ($employee->type === 'hourly')
                                                         <span class="font-medium">Hrs</span>
                                                     @else
-                                                        <span class="font-medium">(₹)</span>
+                                                        <span class="font-medium">(€)</span>
                                                     @endif
                                                     <span class="relative inline-flex items-center group">
                                                         <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 cursor-help"
@@ -176,7 +176,7 @@
                                                             @if ($employee->type === 'hourly')
                                                                 Enter total worked hours. Add extra hours beyond normal shift for overtime.
                                                             @else
-                                                                Enter overtime amount directly in ₹.
+                                                                Enter overtime amount directly in €.
                                                             @endif
                                                         </span>
                                                     </span>

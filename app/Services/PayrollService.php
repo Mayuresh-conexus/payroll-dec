@@ -155,7 +155,7 @@ class PayrollService
 
                     $row['cash_amount']   = $cash;
                     $row['bank_amount']   = ($cash > 0) ? $bankAmount : $bankAmountFix;
-                    $row['weekly_amount'] = $item->weekly_amount ?? ($row['gross_amount'] ?? 0);
+                    $row['weekly_amount'] = $row['gross_amount'] ?? 0; // always use fresh attendance calculation
                     $row['addons']        = $addons;
 
                     $rowsByKey[$key] = $row;

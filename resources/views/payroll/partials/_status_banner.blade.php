@@ -93,18 +93,24 @@
                     </div>
 
                     {{-- Modal body --}}
-                    <div class="p-5 space-y-3 text-sm text-slate-600">
-                        <p>This will <strong class="text-slate-800">recalculate all weekly totals</strong> from the current attendance data.</p>
-                        <ul class="space-y-1.5 text-xs text-slate-500">
-                            <li class="flex items-start gap-2">
-                                <svg class="w-3.5 h-3.5 mt-0.5 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/></svg>
-                                Any manually adjusted cash/bank values will be <strong class="text-slate-700">reset to employee defaults</strong>.
-                            </li>
-                            <li class="flex items-start gap-2">
-                                <svg class="w-3.5 h-3.5 mt-0.5 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/></svg>
-                                This action <strong class="text-slate-700">cannot be undone</strong>. Review carefully before proceeding.
-                            </li>
-                        </ul>
+                    <div class="p-5 space-y-4">
+                        <p class="text-sm text-slate-600">
+                            This will recalculate all weekly totals from the latest attendance data.
+                        </p>
+                        <div class="rounded-lg bg-amber-50 border border-amber-100 divide-y divide-amber-100">
+                            <div class="flex items-center gap-3 px-4 py-3 text-xs text-amber-800">
+                                <svg class="w-4 h-4 flex-shrink-0 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/>
+                                </svg>
+                                Manually adjusted cash/bank values will be reset to employee defaults.
+                            </div>
+                            <div class="flex items-center gap-3 px-4 py-3 text-xs text-amber-800">
+                                <svg class="w-4 h-4 flex-shrink-0 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/>
+                                </svg>
+                                This action cannot be undone.
+                            </div>
+                        </div>
                     </div>
 
                     {{-- Modal footer --}}

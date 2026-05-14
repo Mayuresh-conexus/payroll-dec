@@ -79,7 +79,7 @@ class PayrollController extends Controller
     }
 
 
-   public function saveWeek(SaveWeekPayrollRequest $request)
+    public function saveWeek(SaveWeekPayrollRequest $request)
     {
         $data = $request->validated();
 
@@ -91,6 +91,12 @@ class PayrollController extends Controller
                 'generated_at' => now(),
             ]
         );
+
+        // Snapshot state before save for the activity log
+        $before = PayrollItem::where('payroll_run_id', $run->id)
+            ->with('employee:id,name')
+            ->get()
+            ->keyBy('employee_id');
 
         foreach ($data['items'] as $row) {
             $weeklyAmount = (float) ($row['weekly_amount'] ?? 0);
@@ -124,6 +130,34 @@ class PayrollController extends Controller
             );
         }
 
+        // Build per-employee diff and write one rich audit entry
+        $diffs = [];
+        foreach ($data['items'] as $row) {
+            $old    = $before->get($row['employee_id']);
+            $name   = $old?->employee?->name ?? Employee::find($row['employee_id'])?->name ?? "Employee #{$row['employee_id']}";
+            $newW   = round((float) ($row['weekly_amount'] ?? 0), 2);
+            $newC   = round((float) ($row['cash']          ?? 0), 2);
+            $newB   = round((float) ($row['bank']          ?? 0), 2);
+            $entry  = ['name' => $name];
+
+            if ($old) {
+                $oldW = round((float) $old->weekly_amount, 2);
+                $oldC = round((float) $old->cash_amount,   2);
+                $oldB = round((float) $old->bank_amount,   2);
+                if ($oldW !== $newW) $entry['weekly'] = ['from' => $oldW, 'to' => $newW];
+                if ($oldC !== $newC) $entry['cash']   = ['from' => $oldC, 'to' => $newC];
+                if ($oldB !== $newB) $entry['bank']   = ['from' => $oldB, 'to' => $newB];
+            } else {
+                $entry['weekly'] = ['from' => null, 'to' => $newW];
+                $entry['cash']   = ['from' => null, 'to' => $newC];
+                $entry['bank']   = ['from' => null, 'to' => $newB];
+            }
+
+            $diffs[] = $entry;
+        }
+
+        $this->writePayrollAudit($run->id, 'save', $diffs);
+
         return redirect()->route('payroll.index', [
             'year' => $data['year'],
             'week' => $data['week'],
@@ -152,8 +186,17 @@ class PayrollController extends Controller
             return back()->withErrors(['refresh' => 'Cannot refresh a finalized payroll.']);
         }
 
-        $attService  = app(AttendanceService::class);
-        $dailyAtts   = DailyRateAttendance::where('year', $data['year'])
+        $attService = app(AttendanceService::class);
+
+        // Snapshot before refresh for the activity log
+        $before = $run
+            ? PayrollItem::where('payroll_run_id', $run->id)
+                ->with('employee:id,name')
+                ->get()
+                ->keyBy('employee_id')
+            : collect();
+
+        $dailyAtts = DailyRateAttendance::where('year', $data['year'])
             ->where('week_number', $data['week'])
             ->get();
 
@@ -174,6 +217,43 @@ class PayrollController extends Controller
                 'ot_map'    => $att->ot_map    ?? [],
                 'days'      => [],
             ], $data['year'], $data['week'], (bool) ($att->locked ?? false));
+        }
+
+        // Reload after refresh and compute per-employee diffs
+        $runNow = PayrollRun::where('year', $data['year'])
+            ->where('week_number', $data['week'])
+            ->where('period_type', 'weekly')
+            ->first();
+
+        $diffs = [];
+        if ($runNow) {
+            $after = PayrollItem::where('payroll_run_id', $runNow->id)
+                ->with('employee:id,name')
+                ->get();
+
+            foreach ($after as $item) {
+                $old   = $before->get($item->employee_id);
+                $name  = $item->employee?->name ?? "Employee #{$item->employee_id}";
+                $newW  = round((float) $item->weekly_amount, 2);
+                $newC  = round((float) $item->cash_amount,   2);
+                $newB  = round((float) $item->bank_amount,   2);
+                $entry = ['name' => $name];
+
+                if ($old) {
+                    $oldW = round((float) $old->weekly_amount, 2);
+                    $oldC = round((float) $old->cash_amount,   2);
+                    $oldB = round((float) $old->bank_amount,   2);
+                    if ($oldW !== $newW) $entry['weekly'] = ['from' => $oldW, 'to' => $newW];
+                    if ($oldC !== $newC) $entry['cash']   = ['from' => $oldC, 'to' => $newC];
+                    if ($oldB !== $newB) $entry['bank']   = ['from' => $oldB, 'to' => $newB];
+                } else {
+                    $entry['weekly'] = ['from' => null, 'to' => $newW];
+                }
+
+                $diffs[] = $entry;
+            }
+
+            $this->writePayrollAudit($runNow->id, 'recalculate', $diffs);
         }
 
         return redirect()->route('payroll.index', [
@@ -692,6 +772,28 @@ $sheet->getStyle("K{$rowIndex}:P{$rowIndex}")
         };
 
         return response()->streamDownload($callback, $filename, $headers);
+    }
+
+
+    /**
+     * Write one rich audit entry for a save or recalculate operation.
+     * Stores per-employee before/after diffs so the history panel can render them.
+     */
+    private function writePayrollAudit(int $runId, string $actionType, array $diffs): void
+    {
+        try {
+            AuditLog::create([
+                'user_id'    => auth()->id(),
+                'action'     => 'updated',
+                'model_type' => 'PayrollRun',
+                'model_id'   => $runId,
+                'old_values' => ['action_type' => $actionType],
+                'new_values' => ['action_type' => $actionType, 'employees' => $diffs],
+                'ip_address' => request()->ip(),
+            ]);
+        } catch (\Throwable $e) {
+            logger()->error('Payroll audit write failed: ' . $e->getMessage());
+        }
     }
 
 }

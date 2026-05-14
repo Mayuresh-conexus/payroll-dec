@@ -127,8 +127,10 @@ class PayrollService
                 $addons   = $this->decodeAddons($item->addons);
 
                 if ($trusted) {
-                    $gross = max(0, (float) ($item->gross_amount ?? 0));
-                    $cash  = $this->clampCash((float) ($item->cash_amount ?? 0), $gross);
+                    $gross       = max(0, (float) ($item->gross_amount ?? 0));
+                    $cash        = $this->clampCash((float) ($item->cash_amount ?? 0), $gross);
+                    $bankFix     = $employee->bank_transfer_fix_amount ?? 0;
+                    $bankAmount  = ($cash > 0) ? ($gross - $cash) : min((float) $bankFix, $gross);
 
                     $rowsByKey[$key] = [
                         'employee'      => $employee,
@@ -136,11 +138,11 @@ class PayrollService
                         'total_days'    => $item->total_days,
                         'present_days'  => $item->present_days,
                         'total_hours'   => $item->total_hours,
-                        ($isDaily ? 'overtime_amount' : 'overtime_hours') => $item->overtime_hours,
+                        ($isDaily ? 'overtime_amount' : 'overtime_hours') => $isDaily ? $item->overtime_amount : $item->overtime_hours,
                         'sun_hours'     => $rowsByKey[$key]['sun_hours'] ?? 0,
                         'gross_amount'  => $gross,
                         'cash_amount'   => $cash,
-                        'bank_amount'   => $gross - $cash,
+                        'bank_amount'   => $bankAmount,
                         'weekly_amount' => $item->weekly_amount ?? $gross,
                         'addons'        => $addons,
                     ];
@@ -181,13 +183,14 @@ class PayrollService
         } else {
             // No payroll run yet — ensure defaults
             $rowsByKey = $rowsByKey->map(function (array $row) {
-                $gross = (float) ($row['gross_amount'] ?? 0);
-                $cash  = $this->clampCash((float) ($row['cash_amount'] ?? 0), $gross);
+                $gross   = (float) ($row['gross_amount'] ?? 0);
+                $cash    = $this->clampCash((float) ($row['cash_amount'] ?? 0), $gross);
+                $bankFix = (float) ($row['bank_amount'] ?? 0); // pre-set to bank_transfer_fix_amount
 
                 $row['cash_amount']   = $cash;
-                $row['bank_amount']   = $gross - $cash;
-                $row['weekly_amount'] = $row['weekly_amount'] ?? $gross;
-                $row['addons']        = $row['addons'] ?? [];
+                $row['bank_amount']   = ($cash > 0) ? ($gross - $cash) : min($bankFix, $gross);
+                $row['weekly_amount'] ??= $gross;
+                $row['addons']        ??= [];
 
                 return $row;
             });

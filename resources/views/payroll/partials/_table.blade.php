@@ -30,7 +30,7 @@
                             @if ($row['type'] === 'daily_rate')
                                 <span class="inline-flex px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Daily</span>
                             @else
-                                <span class="inline-flex px-2 py-1 rounded-full bg-blue-50 text-blue-700">Hourly</span>
+                                <span class="inline-flex px-2 py-1 rounded-full bg-brand-50 text-brand-700">Hourly</span>
                             @endif
                         </td>
                         <td class="px-4 py-3 text-center text-xs text-slate-600">

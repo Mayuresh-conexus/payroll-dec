@@ -26,7 +26,7 @@
                         @if ($employee->type === 'daily_rate')
                             <span class="inline-flex px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Daily rate</span>
                         @else
-                            <span class="inline-flex px-2 py-1 rounded-full bg-blue-50 text-blue-700">Hourly</span>
+                            <span class="inline-flex px-2 py-1 rounded-full bg-brand-50 text-brand-700">Hourly</span>
                         @endif
                     </td>
                     <td class="px-4 py-3 text-sm text-slate-700">
@@ -56,7 +56,7 @@
                             <button type="button"
                                 @click='openEdit = true; editingEmployee = @json($employee); if (editingEmployee && editingEmployee.joining_date) { editingEmployee.joining_date = editingEmployee.joining_date.split("T")[0]; } fetchRates(editingEmployee.id)'
                                 data-tooltip="Edit"
-                                class="p-1.5 rounded-md hover:bg-blue-50 hover:text-blue-600 transition">
+                                class="p-1.5 rounded-md hover:bg-brand-50 hover:text-brand-600 transition">
                                 <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none"
                                     viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                                     <path stroke-linecap="round" stroke-linejoin="round"

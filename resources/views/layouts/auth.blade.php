@@ -55,7 +55,7 @@
     <div class="pointer-events-none absolute inset-0 grid-bg opacity-60"></div>
 
     {{-- soft floating background shapes --}}
-    <div class="blob w-64 h-64 bg-blue-200 top-[-3rem] left-[-3rem]"></div>
+    <div class="blob w-64 h-64 bg-brand-200 top-[-3rem] left-[-3rem]"></div>
     <div class="blob w-80 h-80 bg-rose-200 bottom-[-4rem] right-[10%] blob-delay-1"></div>
     <div class="blob w-72 h-72 bg-emerald-200 top-1/3 right-[-3rem] blob-delay-2"></div>
 

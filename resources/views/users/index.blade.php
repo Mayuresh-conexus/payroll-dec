@@ -33,11 +33,11 @@
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                     @forelse($users as $user)
-                        <tr class="hover:bg-slate-50/80 {{ $user->id === auth()->id() ? 'bg-blue-50/30' : '' }}">
+                        <tr class="hover:bg-slate-50/80 {{ $user->id === auth()->id() ? 'bg-brand-50/30' : '' }}">
                             <td class="px-4 py-3 font-medium text-slate-800">
                                 {{ $user->name }}
                                 @if ($user->id === auth()->id())
-                                    <span class="ml-1 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">You</span>
+                                    <span class="ml-1 text-[10px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">You</span>
                                 @endif
                             </td>
                             <td class="px-4 py-3 text-slate-600">{{ $user->email }}</td>
@@ -62,7 +62,7 @@
                                     <button type="button"
                                         @click='openEdit = true; editingUser = @json($user)'
                                         data-tooltip="Edit"
-                                        class="p-1.5 rounded-md hover:bg-blue-50 hover:text-blue-600 transition">
+                                        class="p-1.5 rounded-md hover:bg-brand-50 hover:text-brand-600 transition">
                                         <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a1.5 1.5 0 0 1 2.121 0l1.53 1.53a1.5 1.5 0 0 1 0 2.122l-10.01 10.01-4.243.707.707-4.243 10-10.126Z" />
                                         </svg>

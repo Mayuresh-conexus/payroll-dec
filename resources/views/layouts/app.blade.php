@@ -57,7 +57,7 @@
 
             {{-- Logo --}}
             <div class="h-20 px-6 flex items-center gap-3 shrink-0">
-                <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-sm font-bold text-white shadow-sm shadow-blue-600/30 shrink-0">
+                <div class="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center text-sm font-bold text-white shadow-sm shadow-brand-600/30 shrink-0">
                     PA
                 </div>
                 <div class="text-xl font-semibold tracking-tight text-white" x-show="!sidebarCollapsed" x-transition.opacity.duration.200ms>
@@ -70,8 +70,8 @@
                 {{-- Dashboard --}}
                 <a href="{{ route('dashboard') }}"
                     class="group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
-                      @if (request()->routeIs('dashboard')) bg-blue-600 text-white shadow-sm shadow-blue-600/30 @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
-                    <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('dashboard')) text-white @else text-slate-500 group-hover:text-blue-400 @endif"
+                      @if (request()->routeIs('dashboard')) bg-brand-600 text-white shadow-sm shadow-brand-600/30 @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
+                    <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('dashboard')) text-white @else text-slate-500 group-hover:text-brand-400 @endif"
                         xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 10.5 12 4l9 6.5M5 10.5V20h5v-5h4v5h5v-9.5" />
                     </svg>
@@ -82,8 +82,8 @@
                     {{-- Employees --}}
                     <a href="{{ route('employees.index') }}"
                         class="group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
-                          @if (request()->routeIs('employees.*')) bg-blue-600 text-white shadow-sm shadow-blue-600/30 @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
-                        <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('employees.*')) text-white @else text-slate-500 group-hover:text-blue-400 @endif"
+                          @if (request()->routeIs('employees.*')) bg-brand-600 text-white shadow-sm shadow-brand-600/30 @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
+                        <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('employees.*')) text-white @else text-slate-500 group-hover:text-brand-400 @endif"
                             fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M17 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
                             <circle cx="9" cy="7" r="4" stroke-linecap="round" stroke-linejoin="round" />
@@ -96,8 +96,8 @@
                     {{-- Users --}}
                     <a href="{{ route('users.index') }}"
                         class="group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
-                          @if (request()->routeIs('users.*')) bg-blue-600 text-white shadow-sm shadow-blue-600/30 @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
-                        <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('users.*')) text-white @else text-slate-500 group-hover:text-blue-400 @endif"
+                          @if (request()->routeIs('users.*')) bg-brand-600 text-white shadow-sm shadow-brand-600/30 @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
+                        <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('users.*')) text-white @else text-slate-500 group-hover:text-brand-400 @endif"
                             fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z" />
                         </svg>
@@ -108,8 +108,8 @@
                 {{-- Attendance --}}
                 <a href="{{ route('attendance.index') }}"
                     class="group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
-                      @if (request()->routeIs('attendance.*')) bg-blue-600 text-white shadow-sm shadow-blue-600/30 @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
-                    <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('attendance.*')) text-white @else text-slate-500 group-hover:text-blue-400 @endif"
+                      @if (request()->routeIs('attendance.*')) bg-brand-600 text-white shadow-sm shadow-brand-600/30 @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
+                    <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('attendance.*')) text-white @else text-slate-500 group-hover:text-brand-400 @endif"
                         xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M8 3v3M16 3v3M4 10h16M5 5h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
                     </svg>
@@ -121,8 +121,8 @@
                     <div x-data="{ open: {{ request()->routeIs('payroll.*') ? 'true' : 'false' }} }" class="space-y-1 relative">
                         <button type="button" @click="sidebarCollapsed ? (sidebarCollapsed = false, open = true) : open = !open"
                             class="w-full group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
-                            {{ request()->routeIs('payroll.*') ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/30' : 'text-slate-400 hover:bg-slate-800 hover:text-white' }}">
-                            <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('payroll.*')) text-white @else text-slate-500 group-hover:text-blue-400 @endif"
+                            {{ request()->routeIs('payroll.*') ? 'bg-brand-600 text-white shadow-sm shadow-brand-600/30' : 'text-slate-400 hover:bg-slate-800 hover:text-white' }}">
+                            <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('payroll.*')) text-white @else text-slate-500 group-hover:text-brand-400 @endif"
                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z" />
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M7 9.5h.01M17 9.5h.01M12 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" />
@@ -137,10 +137,10 @@
                         </button>
 
                         <div x-show="open && !sidebarCollapsed" x-collapse class="ml-[42px] space-y-1">
-                            <a href="{{ route('payroll.index') }}" class="block px-3 py-2 rounded-lg text-xs font-semibold transition-colors duration-150 {{ request()->routeIs('payroll.index') ? 'text-blue-400 bg-slate-800' : 'text-slate-500 hover:text-white hover:bg-slate-800' }}">
+                            <a href="{{ route('payroll.index') }}" class="block px-3 py-2 rounded-lg text-xs font-semibold transition-colors duration-150 {{ request()->routeIs('payroll.index') ? 'text-brand-400 bg-slate-800' : 'text-slate-500 hover:text-white hover:bg-slate-800' }}">
                                 Weekly payroll
                             </a>
-                            <a href="{{ route('payroll.monthly.index') }}" class="block px-3 py-2 rounded-lg text-xs font-semibold transition-colors duration-150 {{ request()->routeIs('payroll.monthly.*') ? 'text-blue-400 bg-slate-800' : 'text-slate-500 hover:text-white hover:bg-slate-800' }}">
+                            <a href="{{ route('payroll.monthly.index') }}" class="block px-3 py-2 rounded-lg text-xs font-semibold transition-colors duration-150 {{ request()->routeIs('payroll.monthly.*') ? 'text-brand-400 bg-slate-800' : 'text-slate-500 hover:text-white hover:bg-slate-800' }}">
                                 Monthly payroll
                             </a>
                         </div>
@@ -193,7 +193,7 @@
                             <p class="text-[13px] font-bold text-slate-800">{{ auth()->user()->name ?? 'Admin' }}</p>
                             <p class="text-[11px] text-slate-500 font-medium capitalize">{{ auth()->user()->role ?? 'User' }}</p>
                         </div>
-                        <div class="h-10 w-10 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold shadow-sm shadow-blue-600/20 border-2 border-white ring-1 ring-slate-100">
+                        <div class="h-10 w-10 rounded-full bg-brand-600 text-white flex items-center justify-center text-sm font-bold shadow-sm shadow-brand-600/20 border-2 border-white ring-1 ring-slate-100">
                             {{ strtoupper(mb_substr(auth()->user()->name ?? 'A', 0, 1)) }}
                         </div>
                     </div>
@@ -207,7 +207,7 @@
                 @if($__env->hasSection('page_header'))
                     <div class="bg-gradient-to-r from-slate-50/80 to-white rounded-2xl border border-slate-200/70 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.03)] p-5 sm:p-6 mb-8 flex flex-col xl:flex-row xl:items-center justify-between gap-6 relative overflow-hidden">
                         {{-- Subtle background decoration --}}
-                        <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-blue-500/5 rounded-full blur-xl pointer-events-none"></div>
+                        <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-brand-500/5 rounded-full blur-xl pointer-events-none"></div>
                         
                         <div class="relative z-10 flex-1 min-w-0">
                             <h2 class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 truncate">@yield('page_header')</h2>

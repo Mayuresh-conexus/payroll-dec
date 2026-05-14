@@ -53,7 +53,7 @@
                         'Recalculated from attendance',
                     ],
                     $isSave      => [
-                        'bg-blue-500',
+                        'bg-brand-500',
                         '<path stroke-linecap="round" stroke-linejoin="round" d="M9 3.75H6.912a2.25 2.25 0 0 0-2.15 1.588L2.35 13.177a2.25 2.25 0 0 0-.1.661V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 0 0-2.15-1.588H15M2.25 13.5h3.86a2.25 2.25 0 0 1 2.012 1.244l.256.512a2.25 2.25 0 0 0 2.013 1.244h3.218a2.25 2.25 0 0 0 2.013-1.244l.256-.512a2.25 2.25 0 0 1 2.013-1.244h3.859M12 3v8.25m0 0-3-3m3 3 3-3"/>',
                         'Payroll saved',
                     ],
@@ -81,8 +81,8 @@
                 <div class="flex items-center gap-3">
                     {{-- Dot icon --}}
                     <div class="flex-shrink-0 w-7 h-7 rounded-full {{ $dotColor }} bg-opacity-15 border border-current/10 flex items-center justify-center"
-                         style="background-color: color-mix(in srgb, {{ str_contains($dotColor,'emerald') ? '#10b981' : (str_contains($dotColor,'amber') ? '#f59e0b' : (str_contains($dotColor,'blue') ? '#3b82f6' : '#94a3b8')) }} 12%, white)">
-                        <svg class="w-3.5 h-3.5 {{ str_contains($dotColor,'emerald') ? 'text-emerald-600' : (str_contains($dotColor,'amber') ? 'text-amber-600' : (str_contains($dotColor,'blue') ? 'text-blue-600' : 'text-slate-500')) }}"
+                         style="background-color: color-mix(in srgb, {{ str_contains($dotColor,'emerald') ? '#10b981' : (str_contains($dotColor,'amber') ? '#f59e0b' : (str_contains($dotColor,'brand') ? '#9e2a2b' : '#94a3b8')) }} 12%, white)">
+                        <svg class="w-3.5 h-3.5 {{ str_contains($dotColor,'emerald') ? 'text-emerald-600' : (str_contains($dotColor,'amber') ? 'text-amber-600' : (str_contains($dotColor,'brand') ? 'text-brand-600' : 'text-slate-500')) }}"
                              fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                             {!! $iconPath !!}
                         </svg>
@@ -135,7 +135,7 @@
                                     <span class="text-right">
                                         @if (isset($emp['weekly']))
                                             @if ($emp['weekly']['from'] === null)
-                                                <span class="text-blue-600 font-medium">{{ number_format($emp['weekly']['to'], 2) }}</span>
+                                                <span class="text-brand-600 font-medium">{{ number_format($emp['weekly']['to'], 2) }}</span>
                                             @elseif ($emp['weekly']['to'] > $emp['weekly']['from'])
                                                 <span class="text-slate-400 line-through mr-1">{{ number_format($emp['weekly']['from'], 2) }}</span><span class="text-emerald-600 font-medium">{{ number_format($emp['weekly']['to'], 2) }}</span>
                                             @elseif ($emp['weekly']['to'] < $emp['weekly']['from'])
@@ -152,7 +152,7 @@
                                     <span class="text-right">
                                         @if (isset($emp['cash']))
                                             @if ($emp['cash']['from'] === null)
-                                                <span class="text-blue-600 font-medium">{{ number_format($emp['cash']['to'], 2) }}</span>
+                                                <span class="text-brand-600 font-medium">{{ number_format($emp['cash']['to'], 2) }}</span>
                                             @elseif ($emp['cash']['to'] !== $emp['cash']['from'])
                                                 <span class="text-slate-400 line-through mr-1">{{ number_format($emp['cash']['from'], 2) }}</span><span class="text-slate-700 font-medium">{{ number_format($emp['cash']['to'], 2) }}</span>
                                             @else
@@ -167,7 +167,7 @@
                                     <span class="text-right">
                                         @if (isset($emp['bank']))
                                             @if ($emp['bank']['from'] === null)
-                                                <span class="text-blue-600 font-medium">{{ number_format($emp['bank']['to'], 2) }}</span>
+                                                <span class="text-brand-600 font-medium">{{ number_format($emp['bank']['to'], 2) }}</span>
                                             @elseif ($emp['bank']['to'] !== $emp['bank']['from'])
                                                 <span class="text-slate-400 line-through mr-1">{{ number_format($emp['bank']['from'], 2) }}</span><span class="text-slate-700 font-medium">{{ number_format($emp['bank']['to'], 2) }}</span>
                                             @else

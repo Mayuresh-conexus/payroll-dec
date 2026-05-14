@@ -184,7 +184,7 @@
                                 <!-- Close Button -->
                                 <div class="mt-4 text-right">
                                     <button @click="openModal = null"
-                                        class="bg-blue-500 text-white px-4 py-2 rounded-full hover:bg-blue-600">
+                                        class="bg-brand-500 text-white px-4 py-2 rounded-full hover:bg-brand-600">
                                         Close
                                     </button>
                                 </div>

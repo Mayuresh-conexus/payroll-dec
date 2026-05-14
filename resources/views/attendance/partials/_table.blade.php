@@ -9,7 +9,7 @@
 
         {{-- Lock / copy bar --}}
         <div class="flex items-center gap-6 text-xs mb-4">
-            <span class="text-white bg-gradient-to-r from-blue-500 via-blue-600 to-blue-700 font-medium rounded-full text-xs px-6 py-1 text-center leading-5">
+            <span class="text-white bg-gradient-to-r from-brand-500 via-brand-600 to-brand-700 font-medium rounded-full text-xs px-6 py-1 text-center leading-5">
                 Week {{ $week }} - {{ $year }}
             </span>
 

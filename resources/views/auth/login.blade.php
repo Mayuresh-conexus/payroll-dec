@@ -19,7 +19,7 @@
                 <label class="text-sm font-medium text-slate-700 mb-1 block">Email</label>
                 <input type="email" name="email" value="{{ old('email') }}" required autofocus
                     class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-800
-                              focus:ring-2 focus:ring-blue-400 focus:border-blue-400 focus:outline-none
+                              focus:ring-2 focus:ring-brand-400 focus:border-brand-400 focus:outline-none
                               transition">
                 @error('email')
                     <p class="mt-1 text-xs text-red-500">{{ $message }}</p>
@@ -31,7 +31,7 @@
                 <label class="text-sm font-medium text-slate-700 mb-1 block">Password</label>
                 <input type="password" name="password" required
                     class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-800
-                              focus:ring-2 focus:ring-blue-400 focus:border-blue-400 focus:outline-none
+                              focus:ring-2 focus:ring-brand-400 focus:border-brand-400 focus:outline-none
                               transition">
                 @error('password')
                     <p class="mt-1 text-xs text-red-500">{{ $message }}</p>
@@ -42,7 +42,7 @@
             <div class="flex items-center justify-between text-sm text-slate-600">
                 <label class="inline-flex items-center gap-2">
                     <input type="checkbox" name="remember"
-                        class="rounded border-slate-300 text-blue-500 focus:ring-blue-400"
+                        class="rounded border-slate-300 text-brand-500 focus:ring-brand-400"
                         {{ old('remember') ? 'checked' : '' }}>
                     <span>Remember me</span>
                 </label>
@@ -50,8 +50,8 @@
 
             {{-- Button --}}
             <button
-                class="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700
-                       text-white font-semibold text-sm shadow-md shadow-blue-200
+                class="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-700
+                       text-white font-semibold text-sm shadow-md shadow-brand-200
                        transition">
                 Sign in
             </button>

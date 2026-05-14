@@ -82,7 +82,7 @@ Year {{ $currentYear }} - Week {{ $currentWeek }} <span class="mx-1 text-slate-3
                         </p>
                         <div class="flex flex-col text-[10px] text-slate-400 font-medium pb-0.5 uppercase tracking-wider">
                             <span><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1"></span> CSH {{ number_format($payrollStats['total_cash'] ?? 0) }}</span>
-                            <span><span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 mr-1"></span> BNK {{ number_format($payrollStats['total_bank'] ?? 0) }}</span>
+                            <span><span class="inline-block w-1.5 h-1.5 rounded-full bg-brand-500 mr-1"></span> BNK {{ number_format($payrollStats['total_bank'] ?? 0) }}</span>
                         </div>
                     </div>
                 </div>
@@ -131,9 +131,9 @@ Year {{ $currentYear }} - Week {{ $currentWeek }} <span class="mx-1 text-slate-3
                         </a>
 
                         <a href="{{ route('attendance.index', ['tab' => 'hourly']) }}"
-                            class="group flex items-center justify-between p-4 rounded-2xl border border-slate-200 bg-white hover:border-blue-500 hover:shadow-md hover:shadow-blue-500/10 transition duration-300">
+                            class="group flex items-center justify-between p-4 rounded-2xl border border-slate-200 bg-white hover:border-brand-500 hover:shadow-md hover:shadow-brand-500/10 transition duration-300">
                             <div class="flex items-center gap-4">
-                                <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
+                                <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center border border-brand-100">
                                     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                                 </div>
                                 <div>
@@ -141,7 +141,7 @@ Year {{ $currentYear }} - Week {{ $currentWeek }} <span class="mx-1 text-slate-3
                                     <p class="text-[11px] text-slate-500 mt-0.5">Record hours and OT</p>
                                 </div>
                             </div>
-                            <svg class="w-4 h-4 text-slate-300 group-hover:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                            <svg class="w-4 h-4 text-slate-300 group-hover:text-brand-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
                         </a>
 
                         <a href="{{ route('payroll.index', ['year' => $currentYear, 'week' => $currentWeek]) }}"
@@ -255,7 +255,7 @@ Year {{ $currentYear }} - Week {{ $currentWeek }} <span class="mx-1 text-slate-3
                                         <td class="px-5 py-3 text-right text-emerald-700">
                                             {{ number_format($run['total_cash'], 2) }}
                                         </td>
-                                        <td class="px-5 py-3 text-right text-blue-700">
+                                        <td class="px-5 py-3 text-right text-brand-700">
                                             {{ number_format($run['total_bank'], 2) }}
                                         </td>
                                         <td class="px-5 py-3 text-right">

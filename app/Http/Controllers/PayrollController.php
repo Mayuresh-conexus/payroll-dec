@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\DailyRateAttendance;
 use App\Models\HourlyAttendance;
 use App\Models\PayrollRun;
 use App\Models\PayrollItem;
+use App\Services\AttendanceService;
 use App\Services\PayrollService;
 use App\Http\Requests\SaveWeekPayrollRequest;
 use Illuminate\Http\Request;
@@ -47,6 +49,15 @@ class PayrollController extends Controller
             'bank'  => $rows->sum('bank_amount'),
         ];
 
+        $history = $run
+            ? AuditLog::where('model_type', 'PayrollRun')
+                ->where('model_id', $run->id)
+                ->with('user')
+                ->orderByDesc('created_at')
+                ->limit(20)
+                ->get()
+            : collect();
+
         return view('payroll.index', [
             'year'        => $year,
             'week'        => $week,
@@ -55,6 +66,7 @@ class PayrollController extends Controller
             'rows'        => $rows,
             'totals'      => $totals,
             'weeksInYear' => $weeksInYear,
+            'history'     => $history,
         ]);
     }
 
@@ -116,6 +128,58 @@ class PayrollController extends Controller
             'year' => $data['year'],
             'week' => $data['week'],
         ])->with('success', 'Weekly payroll saved');
+    }
+
+
+    /**
+     * Recalculate all payroll figures from current attendance data.
+     * Resets cash/bank splits back to employee defaults.
+     * Only allowed on draft (non-finalized) runs.
+     */
+    public function refreshWeek(Request $request)
+    {
+        $data = $request->validate([
+            'year' => 'required|integer',
+            'week' => 'required|integer|min:1|max:53',
+        ]);
+
+        $run = PayrollRun::where('year', $data['year'])
+            ->where('week_number', $data['week'])
+            ->where('period_type', 'weekly')
+            ->first();
+
+        if ($run && $run->status === 'final') {
+            return back()->withErrors(['refresh' => 'Cannot refresh a finalized payroll.']);
+        }
+
+        $attService  = app(AttendanceService::class);
+        $dailyAtts   = DailyRateAttendance::where('year', $data['year'])
+            ->where('week_number', $data['week'])
+            ->get();
+
+        foreach ($dailyAtts as $att) {
+            $attService->saveDailyEmployee($att->employee_id, [
+                'days'         => $att->days_map    ?? [],
+                'overtime_map' => $att->overtime_map ?? [],
+            ], $data['year'], $data['week'], (bool) ($att->locked ?? false));
+        }
+
+        $hourlyAtts = HourlyAttendance::where('year', $data['year'])
+            ->where('week_number', $data['week'])
+            ->get();
+
+        foreach ($hourlyAtts as $att) {
+            $attService->saveHourlyEmployee($att->employee_id, [
+                'hours_map' => $att->hours_map ?? [],
+                'ot_map'    => $att->ot_map    ?? [],
+                'days'      => [],
+            ], $data['year'], $data['week'], (bool) ($att->locked ?? false));
+        }
+
+        return redirect()->route('payroll.index', [
+            'year' => $data['year'],
+            'week' => $data['week'],
+        ])->with('success', 'Payroll recalculated from attendance. Cash/bank splits have been reset to defaults.');
     }
 
 

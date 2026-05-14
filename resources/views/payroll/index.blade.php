@@ -42,10 +42,11 @@
 
     <div x-data="payrollPage()" x-init="init(window.payrollServerRows)" class="space-y-6">
 
-
         @include('payroll.partials._status_banner')
 
         @include('payroll.partials._table')
+
+        @include('payroll.partials._history')
 
     </div>
 

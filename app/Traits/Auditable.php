@@ -39,18 +39,28 @@ trait Auditable
         array  $newValues
     ): void {
         // Strip sensitive fields
-        $hidden     = $model->getHidden();
-        $oldValues  = array_diff_key($oldValues, array_flip($hidden));
-        $newValues  = array_diff_key($newValues, array_flip($hidden));
+        $hidden    = $model->getHidden();
+        $oldValues = array_diff_key($oldValues, array_flip($hidden));
+        $newValues = array_diff_key($newValues, array_flip($hidden));
 
-        AuditLog::create([
-            'user_id'    => auth()->id(),
-            'action'     => $action,
-            'model_type' => class_basename($model),
-            'model_id'   => $model->getKey(),
-            'old_values' => $oldValues ?: null,
-            'new_values' => $newValues ?: null,
-            'ip_address' => request()->ip(),
-        ]);
+        try {
+            AuditLog::create([
+                'user_id'    => auth()->id(),
+                'action'     => $action,
+                'model_type' => class_basename($model),
+                'model_id'   => $model->getKey(),
+                'old_values' => $oldValues ?: null,
+                'new_values' => $newValues ?: null,
+                'ip_address' => request()->ip(),
+            ]);
+        } catch (\Throwable $e) {
+            // Never let audit failures crash a business operation.
+            // Log the error so it can be diagnosed without blocking the user.
+            logger()->error('Audit write failed: ' . $e->getMessage(), [
+                'action'     => $action,
+                'model_type' => class_basename($model),
+                'model_id'   => $model->getKey(),
+            ]);
+        }
     }
 }

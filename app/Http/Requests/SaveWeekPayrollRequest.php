@@ -41,10 +41,11 @@ class SaveWeekPayrollRequest extends FormRequest
             'items.*.total_days'      => 'nullable|integer|min:0',
             'items.*.present_days'    => 'nullable|integer|min:0',
             'items.*.total_hours'     => 'nullable|numeric|min:0',
-            'items.*.overtime'        => 'nullable|numeric|min:0',
-            'items.*.cash'            => 'nullable|numeric|min:0',
-            'items.*.bank'            => 'nullable|numeric|min:0',
-            'items.*.weekly_amount'   => 'nullable|numeric|min:0',
+            'items.*.overtime'             => 'nullable|numeric|min:0',
+            'items.*.cash'                 => 'nullable|numeric|min:0',
+            'items.*.bank'                 => 'nullable|numeric|min:0',  // may exceed weekly when advance given
+            'items.*.weekly_amount'        => 'nullable|numeric|min:0',
+            'items.*.prev_advance_balance' => 'nullable|numeric|min:0',
         ];
     }
 

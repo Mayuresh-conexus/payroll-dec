@@ -1,4 +1,4 @@
-{{-- payroll/partials/_table.blade.php — Payroll data table: attendance, weekly, cash, bank --}}
+{{-- payroll/partials/_table.blade.php — Payroll data table: attendance, weekly, cash, bank, balance --}}
 <form action="{{ route('payroll.saveWeek') }}" method="post"
     class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
     @csrf
@@ -16,6 +16,11 @@
                     <th class="px-4 py-3 text-right">Weekly Total</th>
                     <th class="px-4 py-3 text-right">Weekly Cash</th>
                     <th class="px-4 py-3 text-right">Weekly Bank</th>
+                    <th class="px-4 py-3 text-right">
+                        Balance
+                        <span class="ml-1 text-slate-400 font-normal normal-case"
+                              title="Running advance balance. Positive = employee has received more than earned (advance outstanding).">ⓘ</span>
+                    </th>
                     <th class="px-4 py-3 text-center">Payslip</th>
                 </tr>
             </thead>
@@ -77,6 +82,25 @@
                                 class="w-24 text-right border border-slate-200 rounded-lg px-3 py-1.5 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 outline-none transition-all shadow-sm">
                         </td>
 
+                        {{-- Balance column — reactive advance indicator --}}
+                        <td class="px-4 py-3 text-right align-middle">
+                            <template x-if="advanceBalance({{ $index }}) > 0">
+                                <div class="flex flex-col items-end gap-1">
+                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 border border-red-100 text-red-600 text-xs font-semibold whitespace-nowrap">
+                                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/>
+                                        </svg>
+                                        Advance
+                                    </span>
+                                    <span class="text-xs font-mono font-semibold text-red-600"
+                                          x-text="'€' + formatMoney(advanceBalance({{ $index }}))"></span>
+                                </div>
+                            </template>
+                            <template x-if="advanceBalance({{ $index }}) === 0">
+                                <span class="text-xs text-slate-300">—</span>
+                            </template>
+                        </td>
+
                         {{-- Payslip PDF download --}}
                         <td class="px-4 py-3 text-center align-top">
                             <a href="{{ route('payroll.payslip', ['year' => $year, 'week' => $week, 'employee' => $emp->id]) }}"
@@ -90,18 +114,19 @@
                         </td>
                         {{-- Hidden inputs for submit --}}
                         <td class="hidden">
-                            <input type="hidden" name="items[{{ $index }}][employee_id]" value="{{ $emp->id }}">
-                            <input type="hidden" name="items[{{ $index }}][type]"          value="{{ $row['type'] }}">
-                            <input type="hidden" name="items[{{ $index }}][weekly_amount]" x-model="items[{{ $index }}].weekly_amount">
-                            <input type="hidden" name="items[{{ $index }}][gross]"         x-model="items[{{ $index }}].gross">
-                            <input type="hidden" name="items[{{ $index }}][cash]"          x-model="items[{{ $index }}].cash">
-                            <input type="hidden" name="items[{{ $index }}][bank]"          x-model="items[{{ $index }}].bank">
-                            <input type="hidden" name="items[{{ $index }}][addons]"        :value="JSON.stringify(items[{{ $index }}].addons || [])">
+                            <input type="hidden" name="items[{{ $index }}][employee_id]"          value="{{ $emp->id }}">
+                            <input type="hidden" name="items[{{ $index }}][type]"                 value="{{ $row['type'] }}">
+                            <input type="hidden" name="items[{{ $index }}][weekly_amount]"        x-model="items[{{ $index }}].weekly_amount">
+                            <input type="hidden" name="items[{{ $index }}][gross]"                x-model="items[{{ $index }}].gross">
+                            <input type="hidden" name="items[{{ $index }}][cash]"                 x-model="items[{{ $index }}].cash">
+                            <input type="hidden" name="items[{{ $index }}][bank]"                 x-model="items[{{ $index }}].bank">
+                            <input type="hidden" name="items[{{ $index }}][addons]"               :value="JSON.stringify(items[{{ $index }}].addons || [])">
                             <input type="hidden" name="items[{{ $index }}][addons_selected_dates]" :value="JSON.stringify(items[{{ $index }}].selectedAddons || [])">
-                            <input type="hidden" name="items[{{ $index }}][total_days]"    value="{{ $row['total_days'] }}">
-                            <input type="hidden" name="items[{{ $index }}][present_days]"  value="{{ $row['present_days'] }}">
-                            <input type="hidden" name="items[{{ $index }}][total_hours]"   value="{{ $row['total_hours'] }}">
-                            <input type="hidden" name="items[{{ $index }}][overtime]"      value="{{ $row['type'] === 'daily_rate' ? $row['overtime_amount'] ?? 0 : $row['overtime_hours'] ?? 0 }}">
+                            <input type="hidden" name="items[{{ $index }}][total_days]"           value="{{ $row['total_days'] }}">
+                            <input type="hidden" name="items[{{ $index }}][present_days]"         value="{{ $row['present_days'] }}">
+                            <input type="hidden" name="items[{{ $index }}][total_hours]"          value="{{ $row['total_hours'] }}">
+                            <input type="hidden" name="items[{{ $index }}][overtime]"             value="{{ $row['type'] === 'daily_rate' ? $row['overtime_amount'] ?? 0 : $row['overtime_hours'] ?? 0 }}">
+                            <input type="hidden" name="items[{{ $index }}][prev_advance_balance]" value="{{ $row['prev_advance_balance'] ?? 0 }}">
                         </td>
                     </tr>
                 @empty
@@ -120,6 +145,7 @@
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.weeklyAmount)"></span></td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.cash)"></span></td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.bank)"></span></td>
+                        <td class="px-4 py-3"></td>{{-- balance column spacer --}}
                     </tr>
                 </tfoot>
             @endif

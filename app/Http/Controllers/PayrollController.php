@@ -101,14 +101,24 @@ class PayrollController extends Controller
         foreach ($data['items'] as $row) {
             $weeklyAmount = (float) ($row['weekly_amount'] ?? 0);
             $cash         = (float) ($row['cash'] ?? 0);
-            $bank         = (float) ($row['bank'] ?? max(0, $weeklyAmount - $cash));
+            $bank         = (float) ($row['bank'] ?? 0);
 
-            if ($cash + $bank > $weeklyAmount) {
+            // Allow bank > weekly (advance scenario). When bank exceeds earnings, cash must be 0.
+            // Otherwise cap so cash + bank never exceeds weekly.
+            if ($bank > $weeklyAmount) {
+                $cash = 0;
+            } elseif ($cash + $bank > $weeklyAmount) {
                 $bank = max(0, $weeklyAmount - $cash);
             }
 
             $emp       = Employee::find($row['employee_id']);
             $weekStart = Carbon::now()->setISODate($data['year'], $data['week'], 1);
+
+            // Advance balance — running cumulative: max(0, prev + bank - earned)
+            $prevBalance     = (float) ($row['prev_advance_balance'] ?? 0);
+            $advanceGiven    = max(0, $bank - $weeklyAmount);
+            $advanceRecovered= max(0, min($prevBalance, $weeklyAmount - $bank));
+            $advanceBalance  = round(max(0, $prevBalance + $bank - $weeklyAmount), 2);
 
             PayrollItem::updateOrCreate(
                 ['payroll_run_id' => $run->id, 'employee_id' => $row['employee_id']],
@@ -126,6 +136,9 @@ class PayrollController extends Controller
                     'applied_daily_rate'    => $emp ? ($emp->rateAt($weekStart, 'daily_rate')   ?? $emp->daily_rate)   : null,
                     'applied_hourly_rate'   => $emp ? ($emp->rateAt($weekStart, 'hourly_rate')  ?? $emp->hourly_rate)  : null,
                     'applied_hours_per_day' => $emp ? ($emp->rateAt($weekStart, 'hours_per_day') ?? $emp->hours_per_day) : null,
+                    'advance_given'         => round($advanceGiven,     2),
+                    'advance_recovered'     => round($advanceRecovered, 2),
+                    'advance_balance'       => $advanceBalance,
                 ]
             );
         }

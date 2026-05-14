@@ -53,9 +53,19 @@
 
 ---
 
+### Phase 2 — Advance / Running Balance System `[2026-05-14]`
+- **Migration** `2026_05_14_171704` — added `advance_given`, `advance_recovered`, `advance_balance` to `payroll_items`.
+- **Formula** — `advance_balance = max(0, prev_balance + bank_transferred - weekly_earned)`. Covers all scenarios: advance given, partial recovery, full settlement, normal week.
+- **Bank > weekly allowed** — `saveWeek` now permits bank to exceed earnings (advance scenario); cash is forced to 0 when this happens.
+- **Prev balance loaded** — `PayrollService::buildRowsFromAttendance` batch-queries each employee's most recent `advance_balance` from prior weeks and passes it as `prev_advance_balance`.
+- **Reactive Balance column** — new "Balance" column after Weekly Bank in the payroll table. Red badge "Advance €X" when outstanding; `—` when zero. Updates live as admin adjusts the bank input.
+- **`payroll.js`** — `advanceBalance(index)` reactive method. `updateFromBank` no longer caps bank at weekly (allows advance input).
+- **5 new tests** — advance given, accumulation across weeks, full settlement, no advance in normal week, formula equivalence with JS.
+- **77 tests total, all passing.**
+
 ## 🔄 In Progress
 
-> Nothing in progress — Phase 1 complete, Phase 2 next.
+> Nothing in progress — Phase 2 complete, Phase 3 next.
 
 ---
 
@@ -63,8 +73,12 @@
 
 ---
 
-### Phase 2 — Advance / Running Balance System
-> Estimated: 3–5 days
+### ~~Phase 2 — Advance / Running Balance System~~ ✅ Done
+
+---
+
+### Phase 2 — Advance / Running Balance System (archived)
+> Completed 2026-05-14
 
 Track when bank transfer exceeds weekly earnings (advance given) and allow recovery in future weeks.
 

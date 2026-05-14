@@ -45,33 +45,52 @@ export function payrollPage() {
             }
 
             this.items = serverRows.map(row => {
-                const weeklyAmount = Number(row.weekly_amount || 0);
-                const savedCash    = Number(row.cash_amount   || 0);
-                const savedBank    = Number(row.bank_amount   || 0);
-                const isSaved      = savedCash > 0;
+                const weeklyAmount  = Number(row.weekly_amount        || 0);
+                const savedCash     = Number(row.cash_amount          || 0);
+                const savedBank     = Number(row.bank_amount          || 0);
+                const prevBalance   = Number(row.prev_advance_balance || 0);
+                // isSaved: payroll has been explicitly saved (cash was set, or bank > weekly = advance)
+                const isSaved       = savedCash > 0 || savedBank > weeklyAmount;
 
                 let cashAmount, bankAmount;
                 if (isSaved) {
                     cashAmount = savedCash;
                     bankAmount = savedBank;
                 } else {
-                    bankAmount = savedBank > weeklyAmount ? weeklyAmount : savedBank;
-                    cashAmount = weeklyAmount - bankAmount;
+                    // Default: bank = fix amount (savedBank), cash = remainder
+                    bankAmount = savedBank;
+                    cashAmount = Math.max(0, weeklyAmount - bankAmount);
                 }
 
                 return {
-                    weekly_amount:   weeklyAmount,
-                    cash:            Math.round(Math.max(0, cashAmount) * 100) / 100,
-                    bank:            Math.round(Math.max(0, bankAmount) * 100) / 100,
-                    employee_id:     row.employee?.id  ?? null,
-                    type:            row.type          ?? null,
-                    gross_amount:    Number(row.gross_amount    || 0),
-                    overtime_amount: Number(row.overtime_amount || 0),
-                    addons:          row.addons || [],
+                    weekly_amount:        weeklyAmount,
+                    cash:                 Math.round(Math.max(0, cashAmount) * 100) / 100,
+                    bank:                 Math.round(Math.max(0, bankAmount) * 100) / 100,
+                    employee_id:          row.employee?.id  ?? null,
+                    type:                 row.type          ?? null,
+                    gross_amount:         Number(row.gross_amount    || 0),
+                    overtime_amount:      Number(row.overtime_amount || 0),
+                    addons:               row.addons || [],
+                    prev_advance_balance: prevBalance,
                 };
             });
 
             this.recalculateTotals();
+        },
+
+        /* ── advance balance ─────────────────────────────────────────────── */
+
+        /**
+         * Running advance balance for a row — reactive as bank changes.
+         * Formula: max(0, prev_balance + bank - weekly_earned)
+         * Positive = employee has an outstanding advance to settle.
+         */
+        advanceBalance(index) {
+            const it     = this.items[index];
+            const earned = Number(it.weekly_amount        || 0);
+            const bank   = Number(it.bank                 || 0);
+            const prev   = Number(it.prev_advance_balance || 0);
+            return Math.round(Math.max(0, prev + bank - earned) * 100) / 100;
         },
 
         /* ── row calculations ────────────────────────────────────────────── */
@@ -81,9 +100,10 @@ export function payrollPage() {
             const weekly = Number(it.weekly_amount || 0);
             let cash     = Number(it.cash || 0);
             if (!isFinite(cash) || cash < 0) cash = 0;
-            if (cash > weekly)               cash = weekly;
+            if (cash > weekly) cash = weekly;
             it.cash = Math.round(cash * 100) / 100;
-            it.bank = Math.round((weekly - it.cash) * 100) / 100;
+            // bank = weekly - cash; advance is handled via updateFromBank instead
+            it.bank = Math.round(Math.max(0, weekly - it.cash) * 100) / 100;
             this.recalculateTotals();
         },
 
@@ -92,9 +112,12 @@ export function payrollPage() {
             const weekly = Number(it.weekly_amount || 0);
             let bank     = Number(it.bank || 0);
             if (!isFinite(bank) || bank < 0) bank = 0;
-            if (bank > weekly)               bank = weekly;
+            // No upper cap — bank > weekly is a valid advance scenario
             it.bank = Math.round(bank * 100) / 100;
-            it.cash = Math.round((weekly - it.bank) * 100) / 100;
+            // When bank exceeds earnings: advance given, cash = 0
+            it.cash = bank > weekly
+                ? 0
+                : Math.round((weekly - bank) * 100) / 100;
             this.recalculateTotals();
         },
 

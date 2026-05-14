@@ -28,6 +28,9 @@ class PayrollItem extends Model
         'transfer_status',
         'note',
         'is_paid',
+        'advance_given',
+        'advance_recovered',
+        'advance_balance',
     ];
 
     protected $casts = [

@@ -44,6 +44,19 @@ export function employeesData(baseUpdateUrl) {
                         this.editingEmployee.rateVisible[t] = 5;
                     }
                 });
+
+                // Overwrite the denormalized rate fields with the latest value from history
+                // so the modal input always shows the true current rate, not a stale column value.
+                const latestOf = (type) => {
+                    const list = this.editingEmployee.ratesByType[type];
+                    return list && list.length ? parseFloat(list[0].amount) : null;
+                };
+                const latestDaily  = latestOf('daily_rate');
+                const latestHourly = latestOf('hourly_rate');
+                const latestHpd    = latestOf('hours_per_day');
+                if (latestDaily  !== null) this.editingEmployee.daily_rate    = latestDaily;
+                if (latestHourly !== null) this.editingEmployee.hourly_rate   = latestHourly;
+                if (latestHpd    !== null) this.editingEmployee.hours_per_day = latestHpd;
             } catch (e) {
                 console.error('Failed to load rates', e);
             }

@@ -1,4 +1,4 @@
-{{-- payroll/partials/_table.blade.php — Payroll data table: attendance, weekly, cash, bank, balance --}}
+{{-- payroll/partials/_table.blade.php — Payroll data table: attendance, weekly, cash, bank, arrears --}}
 <form action="{{ route('payroll.saveWeek') }}" method="post"
     class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
     @csrf
@@ -17,9 +17,9 @@
                     <th class="px-4 py-3 text-right">Weekly Cash</th>
                     <th class="px-4 py-3 text-right">Weekly Bank</th>
                     <th class="px-4 py-3 text-right">
-                        Balance
+                        Arrears
                         <span class="ml-1 text-slate-400 font-normal normal-case"
-                              title="Running advance balance. Positive = employee has received more than earned (advance outstanding).">ⓘ</span>
+                              title="Running advance arrears. Positive = employee has received more than earned (advance outstanding).">ⓘ</span>
                     </th>
                     <th class="px-4 py-3 text-center">Payslip</th>
                 </tr>
@@ -102,7 +102,7 @@
                             @endif
                         </td>
 
-                        {{-- Balance column — compact badges only, detail opens in modal --}}
+                        {{-- Arrears column — compact badges only, detail opens in modal --}}
                         <td class="px-4 py-3 text-right align-middle">
 
                             {{-- No advance --}}
@@ -121,7 +121,7 @@
                                 </span>
                             </template>
 
-                            {{-- Prior balance — compact chip + Settle button --}}
+                            {{-- Prior arrears — compact chip + Settle button --}}
                             <template x-if="items[{{ $index }}].prev_advance_balance > 0">
                                 <div class="flex flex-col items-end gap-1.5">
                                     {{-- Status chip: settled vs outstanding --}}
@@ -196,7 +196,7 @@
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.weeklyAmount)"></span></td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.cash)"></span></td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.bank)"></span></td>
-                        <td class="px-4 py-3"></td>{{-- balance column spacer --}}
+                        <td class="px-4 py-3"></td>{{-- arrears column spacer --}}
                     </tr>
                 </tfoot>
             @endif

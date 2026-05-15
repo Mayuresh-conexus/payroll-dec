@@ -106,14 +106,14 @@
                             </svg>
                             <div>
                                 <p class="text-sm font-semibold">Fully cleared after save</p>
-                                <p class="text-xs text-emerald-600/80 mt-0.5">No outstanding balance remaining.</p>
+                                <p class="text-xs text-emerald-600/80 mt-0.5">No outstanding arrears remaining.</p>
                             </div>
                         </div>
                     </template>
                     <template x-if="advanceBalance(openSettleModal) > 0">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-xs font-medium text-slate-700">Balance remaining after save</p>
+                                <p class="text-xs font-medium text-slate-700">Arrears remaining after save</p>
                                 <p class="text-xs text-slate-400 mt-0.5">Can settle more in a future week.</p>
                             </div>
                             <span class="font-mono text-base font-bold text-red-600"

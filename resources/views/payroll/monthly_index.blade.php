@@ -63,9 +63,9 @@
                             <th class="px-4 py-3 text-right">Cash</th>
                             <th class="px-4 py-3 text-right">Bank</th>
                             <th class="px-4 py-3 text-right">
-                                Advance
+                                Arrears
                                 <span class="text-slate-400 font-normal normal-case text-xs ml-1"
-                                      title="Outstanding advance balance for this month. Settle here to clear carry-forward.">ⓘ</span>
+                                      title="Outstanding advance arrears for this month. Settle here to clear carry-forward.">ⓘ</span>
                             </th>
                             <th class="px-4 py-3 text-left">Transfer ID</th>
                             <th class="px-4 py-3 text-left">Note</th>
@@ -130,7 +130,7 @@
                                     <span x-text="Math.max(0, bankFix - settled).toFixed(2)">{{ number_format($row['bank_amount'], 2) }}</span>
                                 </td>
 
-                                {{-- Advance Balance column --}}
+                                {{-- Arrears column --}}
                                 <td class="px-4 py-3 align-middle" style="min-width:160px">
                                     @if ($advBefore > 0)
                                         <div class="flex flex-col items-end gap-1.5">
@@ -332,14 +332,14 @@
                                     </svg>
                                     <div>
                                         <p class="text-sm font-semibold">Fully cleared after save</p>
-                                        <p class="text-xs text-emerald-600/80 mt-0.5">No outstanding balance remaining.</p>
+                                        <p class="text-xs text-emerald-600/80 mt-0.5">No outstanding arrears remaining.</p>
                                     </div>
                                 </div>
                             </template>
                             <template x-if="(settleAdvBefore - settleInput) > 0">
                                 <div class="flex items-center justify-between">
                                     <div>
-                                        <p class="text-xs font-medium text-slate-700">Balance remaining after save</p>
+                                        <p class="text-xs font-medium text-slate-700">Arrears remaining after save</p>
                                     </div>
                                     <span class="font-mono text-base font-bold text-red-600"
                                           x-text="'€' + (settleAdvBefore - settleInput).toFixed(2)"></span>

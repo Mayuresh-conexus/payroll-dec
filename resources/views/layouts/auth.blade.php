@@ -6,8 +6,8 @@
     <title>@yield('title', 'Sign in')</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    {{-- Tailwind --}}
-    <script src="https://cdn.tailwindcss.com"></script>
+    {{-- Compiled CSS + JS via Vite (Tailwind v4 + Alpine.js) --}}
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
 
     <style>
         /* floating pastel blobs */

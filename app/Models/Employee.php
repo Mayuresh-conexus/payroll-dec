@@ -44,6 +44,28 @@ class Employee extends Model
     }
 
     /**
+     * Get the most recent rate amount for a given type from the rate history.
+     * Falls back to the denormalized column on the employee if no history exists.
+     * $type: 'daily_rate' | 'hourly_rate' | 'hours_per_day'
+     */
+    public function latestRateOf(string $type): ?float
+    {
+        // If rates are already eager-loaded, avoid a new query
+        if ($this->relationLoaded('rates')) {
+            $rate = $this->rates->where('rate_type', $type)->first();
+            return $rate ? (float) $rate->amount : (float) ($this->{$type} ?? 0);
+        }
+
+        $rate = $this->rates()
+            ->where('rate_type', $type)
+            ->orderByDesc('effective_from')
+            ->orderByDesc('id')
+            ->first();
+
+        return $rate ? (float) $rate->amount : (float) ($this->{$type} ?? 0);
+    }
+
+    /**
      * Get effective rate for given date and type.
      * $type: daily_rate | hourly_rate | hours_per_day
      */

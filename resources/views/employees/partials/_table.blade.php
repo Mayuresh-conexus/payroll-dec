@@ -31,11 +31,36 @@
                     </td>
                     <td class="px-4 py-3 text-sm text-slate-700">
                         @if ($employee->type === 'daily_rate')
-                            {{ number_format($employee->daily_rate, 2) }} / day
+                            @php $latestDaily = $employee->latestRateOf('daily_rate'); @endphp
+                            <div class="flex items-center gap-1.5">
+                                <span class="font-mono font-medium">€{{ number_format($latestDaily, 2) }}</span>
+                                <span class="text-slate-400 text-xs">/ day</span>
+                                @if ($latestDaily != (float) $employee->daily_rate)
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                                          title="Rate was updated from €{{ number_format($employee->daily_rate, 2) }}">
+                                        updated
+                                    </span>
+                                @endif
+                            </div>
                         @else
-                            {{ number_format($employee->hourly_rate, 2) }} / hour
-                            @if ($employee->hours_per_day)
-                                · {{ rtrim(rtrim(number_format($employee->hours_per_day, 2), '0'), '.') }} hrs/day
+                            @php
+                                $latestHourly  = $employee->latestRateOf('hourly_rate');
+                                $latestHpd     = $employee->latestRateOf('hours_per_day');
+                            @endphp
+                            <div class="flex items-center gap-1.5">
+                                <span class="font-mono font-medium">€{{ number_format($latestHourly, 2) }}</span>
+                                <span class="text-slate-400 text-xs">/ hr</span>
+                                @if ($latestHourly != (float) $employee->hourly_rate)
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                                          title="Rate was updated from €{{ number_format($employee->hourly_rate, 2) }}">
+                                        updated
+                                    </span>
+                                @endif
+                            </div>
+                            @if ($latestHpd)
+                                <div class="text-xs text-slate-400 mt-0.5">
+                                    {{ rtrim(rtrim(number_format($latestHpd, 2), '0'), '.') }} hrs/day
+                                </div>
                             @endif
                         @endif
                     </td>

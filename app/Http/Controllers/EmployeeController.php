@@ -30,7 +30,13 @@ class EmployeeController extends Controller
             $query->where('is_active', $request->input('status') === 'active' ? 1 : 0);
         }
 
-        $employees = $query->paginate(10)->withQueryString();
+        // Eager-load the latest rate of each type so the table always reflects
+        // the most recent entry in employee_rates (the source of truth for rate history),
+        // not just the denormalized column on the employees table.
+        $employees = $query->with([
+            'rates' => fn ($q) => $q->orderByDesc('effective_from')->orderByDesc('id'),
+        ])->paginate(10)->withQueryString();
+
         return view('employees.index', compact('employees'));
     }
 

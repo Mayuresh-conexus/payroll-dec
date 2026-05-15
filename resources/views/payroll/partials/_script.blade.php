@@ -4,6 +4,5 @@
     resources/js/components/payroll.js (bundled via Vite).
 --}}
 <script>
-    window.payrollServerRows = @json($rows);
-    window.payrollConfig     = { year: {{ $year }}, month: {{ $month }} };
+    window.payrollConfig = { year: {{ $year }}, month: {{ $month }} };
 </script>

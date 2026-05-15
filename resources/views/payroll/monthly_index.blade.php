@@ -62,6 +62,11 @@
                             <th class="px-4 py-3 text-right">Gross</th>
                             <th class="px-4 py-3 text-right">Cash</th>
                             <th class="px-4 py-3 text-right">Bank</th>
+                            <th class="px-4 py-3 text-right">
+                                Advance
+                                <span class="text-slate-400 font-normal normal-case text-xs ml-1"
+                                      title="Outstanding advance balance for this month. Settle here to clear carry-forward.">ⓘ</span>
+                            </th>
                             <th class="px-4 py-3 text-left">Transfer ID</th>
                             <th class="px-4 py-3 text-left">Note</th>
                             <th class="px-4 py-3 text-left">Transfer Date</th>
@@ -87,7 +92,15 @@
                                     $addonsTotal += (float) ($ad['amount'] ?? 0);
                                 }
                             @endphp
-                            <tr class="hover:bg-slate-50/80">
+                        @php
+                            $bfTotal    = (float) ($row['bank_fix_total'] ?? 0);
+                            $advSettled = (float) ($row['advance_settled'] ?? 0);
+                            $advBefore  = (float) ($row['advance_before_settle'] ?? 0);
+                            $advBalance = (float) ($row['advance_balance'] ?? 0);
+                        @endphp
+                            <tr x-data="{ settled: {{ number_format($advSettled, 2, '.', '') }}, bankFix: {{ number_format($bfTotal, 2, '.', '') }} }"
+                                @settle-updated.window="if ($event.detail.index === {{ $index }}) settled = $event.detail.amount"
+                                class="hover:bg-slate-50/80">
                                 <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ $emp->employee_code }}</td>
                                 <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ $emp->name }}</td>
                                 <td class="px-4 py-3 text-center text-xs">
@@ -114,7 +127,41 @@
                                     {{ number_format($row['cash_amount'] ?? 0, 2) }}
                                 </td>
                                 <td class="px-4 py-3 text-right text-sm text-orange-700 font-semibold bg-orange-50">
-                                    {{ number_format($row['bank_amount'], 2) }}
+                                    <span x-text="Math.max(0, bankFix - settled).toFixed(2)">{{ number_format($row['bank_amount'], 2) }}</span>
+                                </td>
+
+                                {{-- Advance Balance column --}}
+                                <td class="px-4 py-3 align-middle" style="min-width:160px">
+                                    @if ($advBefore > 0)
+                                        <div class="flex flex-col items-end gap-1.5">
+                                            {{-- Status chip: settled vs outstanding --}}
+                                            <template x-if="settled >= {{ number_format($advBefore, 2, '.', '') }}">
+                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+                                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                                                    Settled
+                                                </span>
+                                            </template>
+                                            <template x-if="settled < {{ number_format($advBefore, 2, '.', '') }}">
+                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-700 text-xs font-semibold"
+                                                      x-text="'€' + ({{ number_format($advBefore, 2, '.', '') }} - settled).toFixed(2)">
+                                                </span>
+                                            </template>
+                                            {{-- Settle trigger --}}
+                                            <button type="button"
+                                                    @click="openSettle({{ $index }}, '{{ addslashes($emp->name) }}', {{ number_format($advBefore, 2, '.', '') }}, bankFix, settled)"
+                                                    class="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium transition-colors">
+                                                Settle
+                                                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                                            </button>
+                                        </div>
+                                        {{-- Hidden inputs --}}
+                                        <input type="hidden" name="items[{{ $index }}][advance_settled]" :value="settled">
+                                        <input type="hidden" name="items[{{ $index }}][advance_before_settle]" value="{{ number_format($advBefore, 2, '.', '') }}">
+                                    @else
+                                        <div class="flex justify-end"><span class="text-slate-300 text-sm">—</span></div>
+                                        <input type="hidden" name="items[{{ $index }}][advance_settled]"       value="0">
+                                        <input type="hidden" name="items[{{ $index }}][advance_before_settle]" value="0">
+                                    @endif
                                 </td>
 
                                 <td class="px-4 py-3 text-left">
@@ -151,8 +198,12 @@
                                 <input type="hidden" name="items[{{ $index }}][type]" value="{{ $row['type'] }}">
                                 <input type="hidden" name="items[{{ $index }}][gross]"
                                     value="{{ $row['gross_amount'] }}">
+                                {{-- Bank is reactive: bank_fix minus any settlement entered --}}
                                 <input type="hidden" name="items[{{ $index }}][bank]"
-                                    value="{{ $row['bank_amount'] }}">
+                                    :value="Math.max(0, bankFix - settled).toFixed(2)">
+                                {{-- bank_fix_total lets saveMonth() know the baseline --}}
+                                <input type="hidden" name="items[{{ $index }}][bank_fix_total]"
+                                    :value="bankFix.toFixed(2)">
                                 <input type="hidden" name="items[{{ $index }}][cash]"
                                     value="{{ $row['cash_amount'] ?? 0 }}">
                                 <input type="hidden" name="items[{{ $index }}][weekly_amount]"
@@ -207,44 +258,181 @@
                 </div>
             </div>
         </div>
+        <!-- Settle Modal -->
+        <div x-show="settleShow" x-cloak 
+             x-transition:enter="ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+             x-transition:leave="ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+             @keydown.escape.window="closeSettle()"
+             class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+             
+            <template x-if="settleShow">
+                <div x-transition:enter="ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+                     x-transition:leave="ease-in duration-150" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+                     @click.outside="closeSettle()"
+                     class="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-sm mx-4 overflow-hidden">
+                     
+                    {{-- Header --}}
+                    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                        <div>
+                            <h3 class="text-sm font-semibold text-slate-900">Settle Advance</h3>
+                            <p class="text-xs text-slate-400 mt-0.5" x-text="settleName"></p>
+                        </div>
+                        <button type="button" @click="closeSettle()"
+                                class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    {{-- Outstanding banner --}}
+                    <div class="flex items-center justify-between px-5 py-3 bg-red-50 border-b border-red-100">
+                        <span class="text-xs font-semibold text-red-600 uppercase tracking-wide">Outstanding this month</span>
+                        <span class="font-mono text-base font-bold text-red-700"
+                              x-text="'€' + settleAdvBefore.toFixed(2)"></span>
+                    </div>
+
+                    {{-- Body --}}
+                    <div class="px-5 py-4 space-y-4">
+                        {{-- Recover input --}}
+                        <div>
+                            <label class="block text-xs font-medium text-slate-700 mb-1.5">
+                                Amount to recover from bank
+                            </label>
+                            <div class="flex items-center gap-2">
+                                <div class="relative flex-1">
+                                    <span class="absolute inset-y-0 left-3 flex items-center text-slate-400 text-sm pointer-events-none">€</span>
+                                    <input type="number" min="0" step="0.01"
+                                           x-model.number="settleInput"
+                                           @input="enforceBounds()"
+                                           :max="Math.min(settleAdvBefore, settleBankFix)"
+                                           placeholder="0.00"
+                                           class="w-full pl-7 pr-3 py-2 text-right font-mono text-sm border border-slate-200 rounded-lg focus:border-brand-400 focus:ring-2 focus:ring-brand-400/20 outline-none transition">
+                                </div>
+                                <button type="button"
+                                        @click="settleInput = Math.min(settleAdvBefore, settleBankFix)"
+                                        class="px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-700 transition whitespace-nowrap">
+                                    Max
+                                </button>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-1.5 text-right">
+                                Max available bank:
+                                <span class="font-semibold text-slate-600"
+                                      x-text="'€' + settleBankFix.toFixed(2)"></span>
+                            </p>
+                        </div>
+                        
+                        {{-- After-save preview --}}
+                        <div class="rounded-lg border px-4 py-3 transition-colors"
+                             :class="(settleAdvBefore - settleInput) <= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'">
+                            <template x-if="(settleAdvBefore - settleInput) <= 0">
+                                <div class="flex items-center gap-2 text-emerald-700">
+                                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/>
+                                    </svg>
+                                    <div>
+                                        <p class="text-sm font-semibold">Fully cleared after save</p>
+                                        <p class="text-xs text-emerald-600/80 mt-0.5">No outstanding balance remaining.</p>
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="(settleAdvBefore - settleInput) > 0">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-xs font-medium text-slate-700">Balance remaining after save</p>
+                                    </div>
+                                    <span class="font-mono text-base font-bold text-red-600"
+                                          x-text="'€' + (settleAdvBefore - settleInput).toFixed(2)"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    {{-- Footer --}}
+                    <div class="flex items-center justify-between px-5 py-3.5 bg-slate-50 border-t border-slate-100">
+                        <p class="text-xs text-slate-400">Changes apply when you save payroll.</p>
+                        <button type="button" @click="saveSettle()"
+                                class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 transition">
+                            Done
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <script>
+            function monthlyNotes() {
+                return {
+                    // note modal state
+                    show: false,
+                    currentIndex: null,
+                    currentNote: '',
+                    items: [],
+
+                    // settle modal state
+                    settleShow: false,
+                    settleIndex: null,
+                    settleName: '',
+                    settleAdvBefore: 0,
+                    settleBankFix: 0,
+                    settleInput: 0,
+
+                    init(notes) {
+                        this.items = notes ?? [];
+                    },
+
+                    open(index) {
+                        this.currentIndex = index;
+                        this.currentNote = this.items[index] ?? '';
+                        this.show = true;
+                    },
+
+                    close() {
+                        this.show = false;
+                    },
+
+                    save() {
+                        this.items[this.currentIndex] = this.currentNote;
+                        this.close();
+                    },
+
+                    openSettle(index, name, advBefore, bankFix, currentSettled) {
+                        this.settleIndex = index;
+                        this.settleName = name;
+                        this.settleAdvBefore = advBefore;
+                        this.settleBankFix = bankFix;
+                        this.settleInput = currentSettled;
+                        this.settleShow = true;
+                    },
+
+                    closeSettle() {
+                        this.settleShow = false;
+                        this.settleIndex = null;
+                    },
+
+                    enforceBounds() {
+                        let maxAllowed = Math.min(this.settleAdvBefore, this.settleBankFix);
+                        if (this.settleInput > maxAllowed) {
+                            this.settleInput = maxAllowed;
+                        }
+                    },
+
+                    saveSettle() {
+                        // Max out at valid bounds
+                        let val = parseFloat(this.settleInput);
+                        if (isNaN(val) || val < 0) val = 0;
+                        val = Math.min(val, this.settleAdvBefore, this.settleBankFix);
+                        
+                        window.dispatchEvent(new CustomEvent('settle-updated', {
+                            detail: {
+                                index: this.settleIndex,
+                                amount: val
+                            }
+                        }));
+                        this.closeSettle();
+                    }
+                }
+            }
+        </script>
     </div>
 @endsection
-
-<script>
-    function monthlyNotes() {
-        return {
-            show: false,
-            currentIndex: null,
-            currentNote: '',
-
-            // Initialize notes for each employee row
-            init(notes) {
-                this.items = notes;
-            },
-
-            // Open the modal and set the current note
-            open(index) {
-                this.currentIndex = index;
-                this.currentNote = this.items[index]; // Bind the note value for this employee
-                this.show = true;
-            },
-
-            // Close the modal
-            close() {
-                this.show = false;
-            },
-
-            // Save the note (update the model and the corresponding hidden input)
-            save() {
-                // Update the note for the employee in the Alpine.js model (items array)
-                this.items[this.currentIndex] = this.currentNote;
-
-                // Ensure the note gets updated in the hidden input for form submission
-                document.querySelector(`input[name="items[${this.currentIndex}][note]"]`).value = this.currentNote;
-
-                // Close the modal
-                this.close();
-            }
-        }
-    }
-</script>

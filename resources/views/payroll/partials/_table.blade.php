@@ -82,16 +82,24 @@
                             </template>
                         </td>
                         <td class="px-4 py-3 text-right align-top">
-                            <input type="number" min="0" step="0.01"
-                                x-model.number="items[{{ $index }}].cash"
-                                @input="recalcRow({{ $index }})"
-                                class="w-24 text-right border border-slate-200 rounded-lg px-3 py-1.5 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 outline-none transition-all shadow-sm">
+                            @if ($run && $run->status === 'final')
+                                <span class="font-mono text-sm text-slate-700" x-text="formatMoney(items[{{ $index }}].cash)"></span>
+                            @else
+                                <input type="number" min="0" step="0.01"
+                                    x-model.number="items[{{ $index }}].cash"
+                                    @input="recalcRow({{ $index }})"
+                                    class="w-24 text-right border border-slate-200 rounded-lg px-3 py-1.5 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 outline-none transition-all shadow-sm">
+                            @endif
                         </td>
                         <td class="px-4 py-3 text-right align-top">
-                            <input type="number" min="0" step="0.01"
-                                x-model.number="items[{{ $index }}].bank"
-                                @input="updateFromBank({{ $index }})"
-                                class="w-24 text-right border border-slate-200 rounded-lg px-3 py-1.5 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 outline-none transition-all shadow-sm">
+                            @if ($run && $run->status === 'final')
+                                <span class="font-mono text-sm text-slate-700" x-text="formatMoney(items[{{ $index }}].bank)"></span>
+                            @else
+                                <input type="number" min="0" step="0.01"
+                                    x-model.number="items[{{ $index }}].bank"
+                                    @input="updateFromBank({{ $index }})"
+                                    class="w-24 text-right border border-slate-200 rounded-lg px-3 py-1.5 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 outline-none transition-all shadow-sm">
+                            @endif
                         </td>
 
                         {{-- Balance column — compact badges only, detail opens in modal --}}
@@ -128,13 +136,15 @@
                                               x-text="'€' + formatMoney(advanceBalance({{ $index }}))">
                                         </span>
                                     </template>
-                                    {{-- Settle trigger --}}
-                                    <button type="button"
-                                            @click="openSettle({{ $index }})"
-                                            class="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium transition-colors">
-                                        Settle
-                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-                                    </button>
+                                    {{-- Settle trigger — hidden when finalized --}}
+                                    @if (!$run || $run->status !== 'final')
+                                        <button type="button"
+                                                @click="openSettle({{ $index }})"
+                                                class="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium transition-colors">
+                                            Settle
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                                        </button>
+                                    @endif
                                 </div>
                             </template>
 
@@ -196,11 +206,13 @@
     @if ($rows->count())
         @include('payroll.partials._cash_summary')
 
-        <div class="px-4 py-3 border-t border-slate-100 flex justify-end">
-            <button type="submit"
-                class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800">
-                Save weekly payroll
-            </button>
-        </div>
+        @if (!$run || $run->status !== 'final')
+            <div class="px-4 py-3 border-t border-slate-100 flex justify-end">
+                <button type="submit"
+                    class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800">
+                    Save weekly payroll
+                </button>
+            </div>
+        @endif
     @endif
 </form>

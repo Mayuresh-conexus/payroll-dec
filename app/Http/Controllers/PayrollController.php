@@ -317,6 +317,35 @@ class PayrollController extends Controller
     }
 
     /**
+     * Revert a finalized weekly payroll run back to draft status.
+     * Only admin can do this. Allows corrections after finalization.
+     */
+    public function revertWeek(Request $request)
+    {
+        $data = $request->validate([
+            'year' => 'required|integer',
+            'week' => 'required|integer|min:1|max:53',
+        ]);
+
+        $run = PayrollRun::where('period_type', 'weekly')
+            ->where('year', $data['year'])
+            ->where('week_number', $data['week'])
+            ->first();
+
+        if (! $run) {
+            return back()->withErrors(['revert' => 'No payroll run found for this week.']);
+        }
+
+        $run->status = 'draft';
+        $run->save();
+
+        return redirect()->route('payroll.index', [
+            'year' => $data['year'],
+            'week' => $data['week'],
+        ])->with('success', 'Payroll for week '.$data['week'].' has been reverted to draft and is now editable.');
+    }
+
+    /**
      * Weekly payroll export CSV, now including day wise IN / OFF columns
      */
     public function exportWeekCsv(Request $request)

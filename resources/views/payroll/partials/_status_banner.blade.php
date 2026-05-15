@@ -19,12 +19,81 @@
 
 @if ($run)
     @if ($run->status === 'final')
-        <div class="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800 flex items-center gap-3">
-            <svg class="w-5 h-5 flex-shrink-0 text-emerald-600" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.955 11.955 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
-            </svg>
-            <div class="flex-1">
-                <strong>Week {{ $week }}/{{ $year }} is finalized</strong> — this payroll is locked and cannot be edited.
+        <div x-data="{ revertOpen: false }" @keydown.escape.window="revertOpen = false">
+            <div class="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                    <svg class="w-5 h-5 flex-shrink-0 text-emerald-600" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.955 11.955 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+                    </svg>
+                    <div>
+                        <strong>Week {{ $week }}/{{ $year }} is finalized</strong>
+                        <span class="text-emerald-700/70 ml-1">— this payroll is locked and read-only.</span>
+                    </div>
+                </div>
+                <button type="button" @click="revertOpen = true"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-xs font-medium text-amber-700 hover:bg-amber-100 hover:border-amber-400 transition shadow-sm flex-shrink-0">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"/>
+                    </svg>
+                    Revert to Draft
+                </button>
+            </div>
+
+            {{-- Revert confirmation modal --}}
+            <div x-show="revertOpen"
+                 x-transition:enter="ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+                 style="display:none;">
+                <div x-show="revertOpen"
+                     x-transition:enter="ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+                     x-transition:leave="ease-in duration-150" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+                     @click.outside="revertOpen = false"
+                     class="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md mx-4 overflow-hidden">
+
+                    {{-- Header --}}
+                    <div class="flex items-start gap-3 p-5 border-b border-slate-100">
+                        <div class="flex-shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center">
+                            <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-semibold text-slate-900">Revert to Draft?</h3>
+                            <p class="mt-0.5 text-xs text-slate-500">Week {{ $week }}/{{ $year }}</p>
+                        </div>
+                    </div>
+
+                    {{-- Body --}}
+                    <div class="p-5 space-y-3">
+                        <p class="text-sm text-slate-600">
+                            This will unlock the payroll and allow edits again. You can re-finalize once corrections are made.
+                        </p>
+                        <div class="rounded-lg bg-amber-50 border border-amber-100 px-4 py-3 text-xs text-amber-800 flex items-center gap-2">
+                            <svg class="w-4 h-4 flex-shrink-0 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/>
+                            </svg>
+                            Payslips generated from this period should be re-issued after any changes.
+                        </div>
+                    </div>
+
+                    {{-- Footer --}}
+                    <div class="flex items-center justify-end gap-2 px-5 py-4 bg-slate-50 border-t border-slate-100">
+                        <button type="button" @click="revertOpen = false"
+                            class="px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
+                            Cancel
+                        </button>
+                        <form action="{{ route('payroll.revertWeek') }}" method="POST">
+                            @csrf
+                            <input type="hidden" name="year" value="{{ $year }}">
+                            <input type="hidden" name="week" value="{{ $week }}">
+                            <button type="submit"
+                                class="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition">
+                                Yes, Revert to Draft
+                            </button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     @else

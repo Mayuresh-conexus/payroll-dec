@@ -6,9 +6,29 @@
 @section('page_subtitle', 'Log and review daily presence and hourly records for the selected week.')
 
 @section('page_action')
-    <form method="get" action="{{ route('attendance.index') }}" class="flex flex-wrap items-center gap-3">
+    <form method="get" action="{{ route('attendance.index') }}" class="flex flex-wrap items-center gap-3"
+        @auth x-data="{ memberFilter: '{{ $memberFilter ?? 'all' }}' }" @endauth>
         <input type="hidden" name="tab" value="combined">
-        
+
+        @auth
+            @if(auth()->user()->hasRole('admin'))
+                {{-- Member filter toggle: All / Managers / Employees --}}
+                <input type="hidden" name="member_filter" :value="memberFilter">
+                <div class="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 gap-0.5">
+                    @foreach(['all' => 'All', 'managers' => 'Managers', 'employees' => 'Employees'] as $val => $label)
+                        <button type="button"
+                            @click="memberFilter = '{{ $val }}'; $nextTick(() => $el.closest('form').submit())"
+                            :class="memberFilter === '{{ $val }}'
+                                ? 'bg-white text-slate-900 shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'"
+                            class="px-3 py-1.5 rounded-md text-xs font-semibold transition">
+                            {{ $label }}
+                        </button>
+                    @endforeach
+                </div>
+            @endif
+        @endauth
+
         <label class="sr-only">Year</label>
         <select name="year" class="rounded-lg border-slate-300 shadow-sm text-sm py-2 pl-3 pr-8 focus:ring-slate-500 focus:border-slate-500">
             @for ($y = now()->year - 2; $y <= now()->year + 10; $y++)

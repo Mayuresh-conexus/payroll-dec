@@ -2,16 +2,21 @@
 @section('title', 'Users')
 @section('page_title', 'Users')
 @section('page_header', 'User Accounts')
-@section('page_subtitle', 'Manage who can access the payroll system and their roles.')
+@section('page_subtitle', 'Manage admin accounts. Managers are created via the Employees module.')
 @section('page_action')
-    <button @click="openCreate = true"
+    <button @click="$dispatch('open-create-user')"
         class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-slate-900 text-white hover:bg-slate-800 transition">
-        + Add User
+        + Add Admin
     </button>
 @endsection
 
 @section('content')
-    <div x-data="usersPage()" class="space-y-6">
+    <div x-data="usersPage()" class="space-y-6"
+        @open-create-user.window="openCreate = true"
+        x-init="
+            @if($errors->any() && old('_modal') === 'create') openCreate = true; @endif
+            @if($errors->any() && old('_modal') === 'edit') openEdit = true; @endif
+        ">
 
         @if ($errors->has('delete'))
             <div class="rounded-lg bg-rose-50 border border-rose-200 px-4 py-3 text-sm text-rose-700">
@@ -42,15 +47,8 @@
                             </td>
                             <td class="px-4 py-3 text-slate-600">{{ $user->email }}</td>
                             <td class="px-4 py-3 text-center">
-                                @php
-                                    $roleColor = match($user->role) {
-                                        'admin'   => 'bg-violet-50 text-violet-700',
-                                        'manager' => 'bg-amber-50 text-amber-700',
-                                        default   => 'bg-slate-100 text-slate-600',
-                                    };
-                                @endphp
-                                <span class="inline-flex px-2 py-1 rounded-full text-xs {{ $roleColor }}">
-                                    {{ ucfirst($user->role) }}
+                                    <span class="inline-flex px-2 py-1 rounded-full text-xs bg-violet-50 text-violet-700">
+                                    Admin
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-center text-slate-500 text-xs">
@@ -101,32 +99,41 @@
         </div>
 
         {{-- Create User Modal --}}
-        <div x-show="openCreate" x-cloak x-transition.scale style="margin-top:0"
+        <div x-show="openCreate" x-cloak x-transition.opacity style="margin-top:0"
             class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
             <div @click.away="openCreate = false"
                 class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
                 <div class="flex items-start justify-between">
                     <div>
-                        <h2 class="text-lg font-semibold text-slate-900">Add user</h2>
-                        <p class="mt-1 text-xs text-slate-500">Create a new account and assign a role.</p>
+                        <h2 class="text-lg font-semibold text-slate-900">Add admin</h2>
+                        <p class="mt-1 text-xs text-slate-500">Create a new admin account with full system access.</p>
                     </div>
                     <button type="button" @click="openCreate = false"
                         class="rounded-full w-8 h-8 text-slate-400 hover:text-slate-600 hover:bg-slate-100 inline-flex items-center justify-center">✕</button>
                 </div>
 
+                @if($errors->any() && old('_modal') === 'create')
+                    <div class="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-xs text-rose-700 space-y-1">
+                        @foreach($errors->all() as $error)
+                            <p>{{ $error }}</p>
+                        @endforeach
+                    </div>
+                @endif
+
                 <form action="{{ route('users.store') }}" method="POST" class="space-y-4">
                     @csrf
+                    <input type="hidden" name="_modal" value="create">
 
                     <div class="grid grid-cols-1 gap-4">
                         <div>
                             <label class="block text-xs font-medium text-slate-600 mb-1">Full name <span class="text-rose-500">*</span></label>
-                            <input type="text" name="name" required
+                            <input type="text" name="name" required value="{{ old('name') }}"
                                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none"
                                 placeholder="John Doe">
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-slate-600 mb-1">Email <span class="text-rose-500">*</span></label>
-                            <input type="email" name="email" required
+                            <input type="email" name="email" required value="{{ old('email') }}"
                                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none"
                                 placeholder="john@example.com">
                         </div>
@@ -137,14 +144,12 @@
                                 placeholder="Min. 8 characters">
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-slate-600 mb-1">Role <span class="text-rose-500">*</span></label>
-                            <select name="role" required
-                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none bg-white">
-                                <option value="staff">Staff (read-only dashboard)</option>
-                                <option value="manager">Manager (attendance + dashboard)</option>
-                                <option value="admin">Admin (full access)</option>
-                            </select>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Confirm password <span class="text-rose-500">*</span></label>
+                            <input type="password" name="password_confirmation" required minlength="8"
+                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none"
+                                placeholder="Repeat password">
                         </div>
+                        <input type="hidden" name="role" value="admin">
                     </div>
 
                     <div class="flex justify-end gap-3 pt-1">
@@ -171,9 +176,18 @@
                         class="rounded-full w-8 h-8 text-slate-400 hover:text-slate-600 hover:bg-slate-100 inline-flex items-center justify-center">✕</button>
                 </div>
 
+                @if($errors->any() && old('_modal') === 'edit')
+                    <div class="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-xs text-rose-700 space-y-1">
+                        @foreach($errors->all() as $error)
+                            <p>{{ $error }}</p>
+                        @endforeach
+                    </div>
+                @endif
+
                 <form :action="'{{ url('users') }}/' + editingUser.id" method="POST" class="space-y-4">
                     @csrf
                     @method('PUT')
+                    <input type="hidden" name="_modal" value="edit">
 
                     <div class="grid grid-cols-1 gap-4">
                         <div>
@@ -186,20 +200,18 @@
                             <input type="email" name="email" required x-model="editingUser.email"
                                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none">
                         </div>
-                        <div>
-                            <label class="block text-xs font-medium text-slate-600 mb-1">Role <span class="text-rose-500">*</span></label>
-                            <select name="role" required x-model="editingUser.role"
-                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none bg-white">
-                                <option value="staff">Staff</option>
-                                <option value="manager">Manager</option>
-                                <option value="admin">Admin</option>
-                            </select>
-                        </div>
+                        <input type="hidden" name="role" value="admin">
                         <div>
                             <label class="block text-xs font-medium text-slate-600 mb-1">New password <span class="text-slate-400">(leave blank to keep current)</span></label>
                             <input type="password" name="password" minlength="8"
                                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none"
-                                placeholder="Leave blank to keep current password">
+                                placeholder="Leave blank to keep current">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Confirm new password</label>
+                            <input type="password" name="password_confirmation" minlength="8"
+                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none"
+                                placeholder="Repeat new password">
                         </div>
                     </div>
 

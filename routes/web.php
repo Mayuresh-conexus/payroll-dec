@@ -1,11 +1,12 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\AttendanceController;
-use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\EmployeeController;
+use App\Http\Controllers\ManagerAssignmentController;
+use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\UsersController;
+use Illuminate\Support\Facades\Route;
 
 // Login (only for guests) — SEC-04: throttled to 10 attempts/minute
 Route::middleware('guest')->group(function () {
@@ -20,9 +21,11 @@ Route::post('/logout', [AuthController::class, 'logout'])
     ->middleware('auth')
     ->name('logout');
 
-
 // Protected area Admin and Manager Only
 Route::middleware(['auth', 'role:admin,manager'])->group(function () {
+    // Employee profile (manager-scoped via EmployeePolicy@view)
+    Route::get('/employees/{employee}', [EmployeeController::class, 'show'])->name('employees.show');
+
     // Attendance Management
     Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index');
     Route::post('/attendance/daily-rate', [AttendanceController::class, 'storeDailyRate'])->name('attendance.daily_rate.store');
@@ -31,17 +34,15 @@ Route::middleware(['auth', 'role:admin,manager'])->group(function () {
     Route::post('/attendance/save', [AttendanceController::class, 'storeCombined'])->name('attendance.save');
 });
 
-
-// Protected area Admin, Manager and Staff Only
-Route::middleware(['auth', 'role:admin,manager,staff'])->group(function () {
+// Protected area Admin and Manager Only
+Route::middleware(['auth', 'role:admin,manager'])->group(function () {
     // Dashboard
     Route::get('/', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard');
 
-    // MISSING-09: Password change (any logged-in user can change their own password)
+    // Password change (any logged-in user can change their own password)
     Route::get('/profile/password', [\App\Http\Controllers\ProfileController::class, 'showPasswordForm'])->name('profile.password');
     Route::post('/profile/password', [\App\Http\Controllers\ProfileController::class, 'updatePassword'])->name('profile.password.update');
 });
-
 
 // Protected area ADMIN Only
 Route::middleware(['auth', 'role:admin'])->group(function () {
@@ -53,6 +54,11 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
 
     // MISSING-01: User Management
     Route::resource('users', UsersController::class)->except(['show']);
+
+    // Manager Assignment
+    Route::get('/managers', [ManagerAssignmentController::class, 'index'])->name('managers.index');
+    Route::post('/managers/{manager}/assign', [ManagerAssignmentController::class, 'assign'])->name('managers.assign');
+    Route::delete('/managers/{manager}/employees/{employee}', [ManagerAssignmentController::class, 'unassign'])->name('managers.unassign');
 
     // Payroll Management
     Route::get('/payroll', [PayrollController::class, 'index'])->name('payroll.index');

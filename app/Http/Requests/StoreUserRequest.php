@@ -14,19 +14,19 @@ class StoreUserRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name'     => 'required|string|max:255',
-            'email'    => 'required|email|unique:users,email',
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:8|confirmed',
-            'role'     => 'required|in:admin,manager,staff',
+            'role' => 'required|in:admin',
         ];
     }
 
     public function messages(): array
     {
         return [
-            'email.unique'         => 'This email address is already registered.',
-            'password.confirmed'   => 'Password confirmation does not match.',
-            'password.min'         => 'Password must be at least 8 characters.',
+            'email.unique' => 'This email address is already registered.',
+            'password.confirmed' => 'Password confirmation does not match.',
+            'password.min' => 'Password must be at least 8 characters.',
         ];
     }
 }

@@ -2,16 +2,18 @@
 
 namespace App\Models;
 
+use App\Traits\Auditable;
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Carbon\Carbon;
-use App\Models\EmployeeRate;
-use App\Traits\Auditable;
 
 class Employee extends Model
 {
-    use HasFactory, SoftDeletes, Auditable;
+    use Auditable, HasFactory, SoftDeletes;
 
     protected $table = 'employees';
 
@@ -38,9 +40,27 @@ class Employee extends Model
         'hours_per_day' => 'float',
     ];
 
-    public function rates()
+    /** The manager user account linked to this employee, if any. */
+    public function user(): HasOne
+    {
+        return $this->hasOne(User::class, 'employee_id');
+    }
+
+    public function rates(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(EmployeeRate::class);
+    }
+
+    public function managers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'manager_employee', 'employee_id', 'manager_id')
+            ->withPivot(['assigned_by', 'assigned_at'])
+            ->withTimestamps();
+    }
+
+    public function scopeForManager(Builder $query, int $managerId): Builder
+    {
+        return $query->whereHas('managers', fn (Builder $q) => $q->where('users.id', $managerId));
     }
 
     /**
@@ -53,6 +73,7 @@ class Employee extends Model
         // If rates are already eager-loaded, avoid a new query
         if ($this->relationLoaded('rates')) {
             $rate = $this->rates->where('rate_type', $type)->first();
+
             return $rate ? (float) $rate->amount : (float) ($this->{$type} ?? 0);
         }
 

@@ -13,22 +13,22 @@ class UpdateUserRequest extends FormRequest
 
     public function rules(): array
     {
-        $user   = $this->route('user');
+        $user = $this->route('user');
         $userId = is_object($user) ? $user->id : $user;
 
         return [
-            'name'     => 'required|string|max:255',
-            'email'    => 'required|email|unique:users,email,' . $userId,
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email,'.$userId,
             'password' => 'nullable|string|min:8|confirmed',
-            'role'     => 'required|in:admin,manager,staff',
+            'role' => 'required|in:admin',
         ];
     }
 
     public function messages(): array
     {
         return [
-            'email.unique'       => 'This email is already used by another account.',
-            'password.min'       => 'Password must be at least 8 characters.',
+            'email.unique' => 'This email is already used by another account.',
+            'password.min' => 'Password must be at least 8 characters.',
             'password.confirmed' => 'Password confirmation does not match.',
         ];
     }

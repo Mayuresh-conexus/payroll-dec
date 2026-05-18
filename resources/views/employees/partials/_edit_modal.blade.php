@@ -218,6 +218,94 @@
                     </div>
                 </div>
 
+                {{-- Manager system access --}}
+                <div class="border border-amber-200 rounded-xl p-4 bg-amber-50/40 space-y-3 mt-4"
+                    x-data="{ revokeAccess: false, changePassword: false }">
+
+                    {{-- Has existing account --}}
+                    <template x-if="editingEmployee && editingEmployee.user">
+                        <div class="space-y-3">
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded uppercase tracking-wide">Manager</span>
+                                <span class="text-xs font-medium text-slate-700">Login:</span>
+                                <span class="text-xs text-slate-600 font-mono" x-text="editingEmployee.user.email"></span>
+                            </div>
+                            <div class="flex flex-wrap gap-3">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" x-model="changePassword"
+                                        class="rounded border-slate-300 text-amber-600 focus:ring-amber-500">
+                                    <span class="text-xs text-slate-600">Change login email / password</span>
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" name="revoke_manager_access" value="1" x-model="revokeAccess"
+                                        class="rounded border-slate-300 text-rose-500 focus:ring-rose-400">
+                                    <span class="text-xs text-rose-600 font-medium">Revoke manager access</span>
+                                </label>
+                            </div>
+                            <div x-show="changePassword && !revokeAccess" x-collapse class="space-y-3">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">New login email</label>
+                                    <input type="email" name="manager_email"
+                                        :value="editingEmployee.user.email"
+                                        class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none">
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs font-medium text-slate-600 mb-1">New password <span class="text-slate-400">(leave blank to keep)</span></label>
+                                        <input type="password" name="manager_password" minlength="8"
+                                            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
+                                            placeholder="Leave blank to keep">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-slate-600 mb-1">Confirm new password</label>
+                                        <input type="password" name="manager_password_confirmation" minlength="8"
+                                            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    {{-- No existing account --}}
+                    <template x-if="editingEmployee && !editingEmployee.user">
+                        <div class="space-y-3" x-data="{ grantAccess: false }">
+                            <label class="flex items-center gap-2.5 cursor-pointer">
+                                <input type="checkbox" name="grant_manager_access" value="1"
+                                    x-model="grantAccess"
+                                    class="rounded border-slate-300 text-amber-600 focus:ring-amber-500">
+                                <span class="text-xs font-semibold text-slate-700">Grant manager login access</span>
+                                <span class="ml-auto text-[10px] font-medium text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Manager role</span>
+                            </label>
+                            <div x-show="grantAccess" x-collapse class="space-y-3 pt-1">
+                                <p class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                    Enter an existing manager's email to link their account, or a new email to create one.
+                                    Leave password blank when linking an existing account.
+                                </p>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Login email <span class="text-rose-500">*</span></label>
+                                    <input type="email" name="manager_email"
+                                        class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
+                                        placeholder="manager@example.com">
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs font-medium text-slate-600 mb-1">Password <span class="text-slate-400">(new accounts only)</span></label>
+                                        <input type="password" name="manager_password" minlength="8"
+                                            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
+                                            placeholder="Min. 8 characters">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-slate-600 mb-1">Confirm password</label>
+                                        <input type="password" name="manager_password_confirmation" minlength="8"
+                                            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
+                                            placeholder="Repeat password">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
                 {{-- Active status --}}
                 <input type="hidden" name="is_active" value="0">
                 <label class="inline-flex items-center gap-2 text-xs text-slate-600">

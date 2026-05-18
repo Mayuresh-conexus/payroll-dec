@@ -103,6 +103,19 @@
                         </svg>
                         <span x-show="!sidebarCollapsed" x-transition.opacity>Users</span>
                     </a>
+
+                    {{-- Manager Assignments --}}
+                    <a href="{{ route('managers.index') }}"
+                        class="group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
+                          @if (request()->routeIs('managers.*')) bg-brand-600 text-white @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
+                        <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('managers.*')) text-white @else text-slate-500 group-hover:text-brand-400 @endif"
+                            fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M18 21a6 6 0 0 0-12 0" />
+                            <circle cx="12" cy="11" r="4" stroke-linecap="round" stroke-linejoin="round" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M22 21a8 8 0 0 0-6-7.7M2 21a8 8 0 0 1 6-7.7" />
+                        </svg>
+                        <span x-show="!sidebarCollapsed" x-transition.opacity>Assignments</span>
+                    </a>
                 @endif
 
                 {{-- Attendance --}}

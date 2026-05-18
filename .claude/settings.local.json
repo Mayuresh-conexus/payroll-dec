@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\xampp\\\\htdocs\\\\payroll-dec\" -Directory)",
+      "Bash(Select-Object Name)",
+      "PowerShell(Start-Process \"c:\\\\xampp\\\\mysql\\\\bin\\\\mysqld.exe\" -ArgumentList \"--defaults-file=c:\\\\xampp\\\\mysql\\\\bin\\\\my.ini\" -WindowStyle Hidden)",
+      "PowerShell(Get-Process mysqld -ErrorAction SilentlyContinue)",
+      "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\xampp\\\\htdocs\\\\payroll-dec\\\\resources\\\\views\\\\managers\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\xampp\\\\htdocs\\\\payroll-dec\\\\resources\\\\views\\\\dashboard\")",
+      "Bash(vendor/bin/pint --dirty)"
+    ]
+  }
+}

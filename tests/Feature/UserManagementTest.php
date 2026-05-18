@@ -22,14 +22,29 @@ class UserManagementTest extends TestCase
         $this->actingAs($this->admin());
 
         $this->post('/users', [
-            'name'                  => 'New Manager',
-            'email'                 => 'manager@example.com',
-            'password'              => 'password123',
+            'name' => 'New Admin',
+            'email' => 'newadmin@example.com',
+            'password' => 'password123',
             'password_confirmation' => 'password123',
-            'role'                  => 'manager',
+            'role' => 'admin',
         ])->assertRedirect();
 
-        $this->assertDatabaseHas('users', ['email' => 'manager@example.com', 'role' => 'manager']);
+        $this->assertDatabaseHas('users', ['email' => 'newadmin@example.com', 'role' => 'admin']);
+    }
+
+    public function test_non_admin_role_is_rejected_on_create(): void
+    {
+        $this->actingAs($this->admin());
+
+        $this->post('/users', [
+            'name' => 'Fake Manager',
+            'email' => 'fakemanager@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'role' => 'manager',
+        ])->assertSessionHasErrors('role');
+
+        $this->assertDatabaseMissing('users', ['email' => 'fakemanager@example.com']);
     }
 
     public function test_duplicate_email_is_rejected(): void
@@ -39,10 +54,11 @@ class UserManagementTest extends TestCase
         User::factory()->create(['email' => 'existing@example.com']);
 
         $this->post('/users', [
-            'name'     => 'Duplicate',
-            'email'    => 'existing@example.com',
+            'name' => 'Duplicate',
+            'email' => 'existing@example.com',
             'password' => 'password123',
-            'role'     => 'staff',
+            'password_confirmation' => 'password123',
+            'role' => 'admin',
         ])->assertSessionHasErrors('email');
     }
 
@@ -68,7 +84,7 @@ class UserManagementTest extends TestCase
     public function test_admin_can_delete_other_user(): void
     {
         $admin = $this->admin();
-        $other = User::factory()->create(['role' => 'staff']);
+        $other = User::factory()->create(['role' => 'admin']);
         $this->actingAs($admin);
 
         $this->delete("/users/{$other->id}")->assertRedirect();
@@ -78,18 +94,31 @@ class UserManagementTest extends TestCase
 
     // ── Update ───────────────────────────────────────────────────────────────
 
-    public function test_admin_can_change_user_role(): void
+    public function test_admin_can_update_user_name_and_email(): void
     {
         $admin = $this->admin();
-        $staff = User::factory()->create(['role' => 'staff']);
+        $other = User::factory()->create(['role' => 'admin']);
         $this->actingAs($admin);
 
-        $this->patch("/users/{$staff->id}", [
-            'name'  => $staff->name,
-            'email' => $staff->email,
-            'role'  => 'manager',
+        $this->patch("/users/{$other->id}", [
+            'name' => 'Updated Name',
+            'email' => 'updated@example.com',
+            'role' => 'admin',
         ])->assertRedirect();
 
-        $this->assertDatabaseHas('users', ['id' => $staff->id, 'role' => 'manager']);
+        $this->assertDatabaseHas('users', ['id' => $other->id, 'name' => 'Updated Name', 'email' => 'updated@example.com', 'role' => 'admin']);
+    }
+
+    public function test_non_admin_role_is_rejected_on_update(): void
+    {
+        $admin = $this->admin();
+        $other = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin);
+
+        $this->patch("/users/{$other->id}", [
+            'name' => $other->name,
+            'email' => $other->email,
+            'role' => 'manager',
+        ])->assertSessionHasErrors('role');
     }
 }

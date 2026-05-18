@@ -2,12 +2,25 @@
 
 @section('title', 'Dashboard')
 @section('page_title', 'Dashboard')
-@section('page_header', 'Weekly payroll overview')
+@section('page_header')
+    @if ($isManagerView ?? false) My Team — Week {{ $currentWeek }} @else Weekly payroll overview @endif
+@endsection
 @section('page_subtitle')
-Year {{ $currentYear }} - Week {{ $currentWeek }} <span class="mx-1 text-slate-300">|</span> {{ $today->startOfWeek()->format('d M') }} to {{ $today->copy()->endOfWeek()->format('d M') }}
+    @if ($isManagerView ?? false)
+        {{ $markedCount }} of {{ $markedCount + $unmarkedCount }} employees marked
+        <span class="mx-1 text-slate-300">|</span>
+        {{ $today->startOfWeek()->format('d M') }} – {{ $today->copy()->endOfWeek()->format('d M Y') }}
+    @else
+        Year {{ $currentYear }} - Week {{ $currentWeek }} <span class="mx-1 text-slate-300">|</span> {{ $today->startOfWeek()->format('d M') }} to {{ $today->copy()->endOfWeek()->format('d M') }}
+    @endif
 @endsection
 @section('page_action')
-    @if (($attendanceStats['daily_locked'] ?? false) || ($attendanceStats['hourly_locked'] ?? false))
+    @if ($isManagerView ?? false)
+        <a href="{{ route('attendance.index', ['year' => $currentYear, 'week' => $currentWeek]) }}"
+            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition">
+            Mark Attendance
+        </a>
+    @elseif (($attendanceStats['daily_locked'] ?? false) || ($attendanceStats['hourly_locked'] ?? false))
         <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-medium shadow-sm">
             <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
             <span>Locked for @if ($attendanceStats['daily_locked'] ?? false) daily @endif @if (($attendanceStats['daily_locked'] ?? false) && ($attendanceStats['hourly_locked'] ?? false)) and @endif @if ($attendanceStats['hourly_locked'] ?? false) hourly @endif</span>
@@ -196,6 +209,11 @@ Year {{ $currentYear }} - Week {{ $currentWeek }} <span class="mx-1 text-slate-3
                 </div>
 
             </div>
+        @endif
+
+        {{-- Manager team cards ──────────────────────────────────────────── --}}
+        @if ($isManagerView ?? false)
+            @include('dashboard.manager_view')
         @endif
 
         @if (auth()->user()->role === 'admin')

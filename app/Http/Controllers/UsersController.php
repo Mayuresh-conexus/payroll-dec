@@ -2,17 +2,17 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
 use App\Http\Requests\StoreUserRequest;
 use App\Http\Requests\UpdateUserRequest;
-use Illuminate\Http\Request;
+use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 
 class UsersController extends Controller
 {
     public function index()
     {
-        $users = User::orderBy('id', 'desc')->paginate(15);
+        $users = User::where('role', 'admin')->orderBy('id', 'desc')->paginate(15);
+
         return view('users.index', compact('users'));
     }
 
@@ -21,10 +21,10 @@ class UsersController extends Controller
         $data = $request->validated();
 
         User::create([
-            'name'     => $data['name'],
-            'email'    => $data['email'],
+            'name' => $data['name'],
+            'email' => $data['email'],
             'password' => Hash::make($data['password']),
-            'role'     => $data['role'],
+            'role' => $data['role'],
         ]);
 
         return back()->with('success', 'User created successfully.');
@@ -40,11 +40,11 @@ class UsersController extends Controller
     {
         $data = $request->validated();
 
-        $user->name  = $data['name'];
+        $user->name = $data['name'];
         $user->email = $data['email'];
-        $user->role  = $data['role'];
+        $user->role = $data['role'];
 
-        if (!empty($data['password'])) {
+        if (! empty($data['password'])) {
             $user->password = Hash::make($data['password']);
         }
 
@@ -61,6 +61,7 @@ class UsersController extends Controller
         }
 
         $user->delete();
+
         return back()->with('success', 'User deleted.');
     }
 }

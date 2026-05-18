@@ -2,9 +2,10 @@
 <div x-show="openCreate" x-cloak x-transition.scale style="margin-top: 0"
     class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
     <div @click.away="openCreate = false"
-        class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 sm:p-7 space-y-6" x-data="{ empType: 'daily_rate' }">
+        class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        x-data="{ empType: 'daily_rate', grantAccess: false }">
 
-        <div class="flex items-start justify-between">
+        <div class="flex items-start px-6 pt-6 pb-4 justify-between gap-4 shrink-0">
             <div>
                 <h2 class="text-lg font-semibold text-slate-900">Add employee</h2>
                 <p class="mt-1 text-xs text-slate-500">Create a new team member and set their pay type and rate.</p>
@@ -14,8 +15,9 @@
                 @click="openCreate = false">✕</button>
         </div>
 
-        <form action="{{ route('employees.store') }}" method="post" class="space-y-5">
+        <form action="{{ route('employees.store') }}" method="post" class="flex-1 flex flex-col min-h-0">
             @csrf
+            <div class="overflow-y-auto flex-1 px-6 pb-4 space-y-5">
             {{-- Basic details --}}
             <div class="space-y-3">
                 <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-500">Basic details</h3>
@@ -136,9 +138,46 @@
                 <p class="mt-1 text-[11px] text-slate-400">Choose the date when these rates become effective.</p>
             </div>
 
-            <hr class="border-slate-100">
+            {{-- Manager system access --}}
+            <div class="border border-amber-200 rounded-xl p-4 bg-amber-50/40 space-y-3">
+                <label class="flex items-center gap-2.5 cursor-pointer">
+                    <input type="checkbox" name="grant_manager_access" value="1"
+                        x-model="grantAccess"
+                        class="rounded border-slate-300 text-amber-600 focus:ring-amber-500">
+                    <span class="text-xs font-semibold text-slate-700">Grant manager login access</span>
+                    <span class="ml-auto text-[10px] font-medium text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Manager role</span>
+                </label>
+                <div x-show="grantAccess" x-collapse class="space-y-3 pt-1">
+                    <p class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        Enter an existing manager's email to link their account, or a new email to create one.
+                        Leave password blank when linking an existing account.
+                    </p>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Login email <span class="text-rose-500">*</span></label>
+                        <input type="email" name="manager_email"
+                            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
+                            placeholder="manager@example.com">
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Password <span class="text-slate-400">(new accounts only)</span></label>
+                            <input type="password" name="manager_password" minlength="8"
+                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
+                                placeholder="Min. 8 characters">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Confirm password</label>
+                            <input type="password" name="manager_password_confirmation" minlength="8"
+                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
+                                placeholder="Repeat password">
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-            <div class="flex flex-col sm:flex-row justify-end gap-3 pt-1">
+            </div>{{-- end scrollable area --}}
+
+            <div class="flex flex-col sm:flex-row justify-end gap-3 px-6 py-4 border-t border-slate-100 shrink-0">
                 <button type="button" @click="openCreate = false"
                     class="inline-flex justify-center px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50">
                     Cancel

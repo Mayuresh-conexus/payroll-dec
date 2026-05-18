@@ -11,7 +11,7 @@
             margin: 0;
             height: 100vh;
             font-family: 'Inter', system-ui, sans-serif;
-            background: radial-gradient(circle at top, #0f172a, #020617);
+            background: #0f172a;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -23,7 +23,7 @@
             width: 90%;
             padding: 48px;
             border-radius: 20px;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+            background: rgba(255, 255, 255, 0.04);
             backdrop-filter: blur(20px);
             box-shadow: 0 40px 120px rgba(0, 0, 0, .5);
             text-align: center;
@@ -91,13 +91,13 @@
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            background: #9e2a2b;
             color: #fff;
         }
 
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(99, 102, 241, .5);
+            box-shadow: 0 10px 30px rgba(158, 42, 43, .5);
         }
 
         .btn-ghost {

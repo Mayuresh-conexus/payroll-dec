@@ -68,7 +68,7 @@
                         @if ($employee->type === 'daily_rate')
                             <span style="background: #ecfdf5; color: #059669; font-size: 8.5px; font-weight: bold; text-transform: uppercase; padding: 2px 7px; border-radius: 3px;">Daily Rate</span>
                         @else
-                            <span style="background: #eff6ff; color: #2563eb; font-size: 8.5px; font-weight: bold; text-transform: uppercase; padding: 2px 7px; border-radius: 3px;">Hourly</span>
+                            <span style="background: #fae4e4; color: #9e2a2b; font-size: 8.5px; font-weight: bold; text-transform: uppercase; padding: 2px 7px; border-radius: 3px;">Hourly</span>
                         @endif
                     </td>
                 </tr>
@@ -221,9 +221,9 @@
         </tr>
 
         {{-- Bank --}}
-        <tr style="background: #eff6ff;">
-            <td style="padding: 8px 10px; border: 1px solid #e2e8f0; color: #2563eb; font-size: 10px;">&#8627; Paid by Bank Transfer</td>
-            <td style="padding: 8px 10px; border: 1px solid #e2e8f0; text-align: right; color: #2563eb; font-weight: bold; font-size: 10px;">{{ number_format($item->bank_amount ?? 0, 2) }}</td>
+        <tr style="background: #fdf2f2;">
+            <td style="padding: 8px 10px; border: 1px solid #e2e8f0; color: #9e2a2b; font-size: 10px;">&#8627; Paid by Bank Transfer</td>
+            <td style="padding: 8px 10px; border: 1px solid #e2e8f0; text-align: right; color: #9e2a2b; font-weight: bold; font-size: 10px;">{{ number_format($item->bank_amount ?? 0, 2) }}</td>
         </tr>
     </tbody>
 </table>

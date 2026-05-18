@@ -42,7 +42,7 @@
 
 </head>
 
-<body class="bg-slate-50/50 text-slate-800 antialiased selection:bg-indigo-100 selection:text-indigo-900">
+<body class="bg-slate-50/50 text-slate-800 antialiased selection:bg-brand-100 selection:text-brand-700">
 
     <div x-data="{ sidebarCollapsed: false }" class="h-screen flex overflow-hidden">
 
@@ -205,7 +205,7 @@
 
                 {{-- Premium, Distinct Page Header Block --}}
                 @if($__env->hasSection('page_header'))
-                    <div class="bg-gradient-to-r from-slate-50/80 to-white rounded-2xl border border-slate-200/70 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.03)] p-5 sm:p-6 mb-8 flex flex-col xl:flex-row xl:items-center justify-between gap-6 relative overflow-hidden">
+                    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.03)] p-5 sm:p-6 mb-8 flex flex-col xl:flex-row xl:items-center justify-between gap-6 relative overflow-hidden">
                         {{-- Subtle background decoration --}}
                         <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-brand-500/5 rounded-full blur-xl pointer-events-none"></div>
                         

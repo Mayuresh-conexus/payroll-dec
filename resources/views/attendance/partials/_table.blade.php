@@ -9,7 +9,7 @@
 
         {{-- Lock / copy bar --}}
         <div class="flex items-center gap-6 text-xs mb-4">
-            <span class="text-white bg-gradient-to-r from-brand-500 via-brand-600 to-brand-700 font-medium rounded-full text-xs px-6 py-1 text-center leading-5">
+            <span class="text-white font-medium rounded-full text-xs px-6 py-1 text-center leading-5" style="background:#9e2a2b;">
                 Week {{ $week }} - {{ $year }}
             </span>
 
@@ -58,7 +58,7 @@
                         @foreach (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as $d)
                             @php $isToday = isset($todayKey) && $todayKey === $d; @endphp
                             <th class="w-12 px-2 py-2 text-center bg-white border-l border-slate-100">
-                                <div class="mx-auto w-10 rounded-lg px-1.5 py-1 {{ $isToday ? 'bg-[#2563EB] text-white shadow-sm' : 'bg-[#F6F7F9] text-slate-700' }}">
+                                <div class="mx-auto w-10 rounded-lg px-1.5 py-1 {{ $isToday ? 'bg-[#9e2a2b] text-white shadow-sm' : 'bg-[#F6F7F9] text-slate-700' }}">
                                     <div class="text-[12px] leading-none font-semibold">{{ $dayDates[$d] ?? '' }}</div>
                                 </div>
                             </th>
@@ -73,7 +73,7 @@
                         @foreach (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as $d)
                             @php $isToday = isset($todayKey) && $todayKey === $d; @endphp
                             <th class="w-12 px-2 py-2 text-center bg-white border-l border-slate-100">
-                                <span class="inline-flex items-center justify-center rounded-md px-2 py-1 {{ $isToday ? 'bg-[#DBEAFE] text-[#1E40AF] font-semibold' : 'bg-transparent' }}">
+                                <span class="inline-flex items-center justify-center rounded-md px-2 py-1 {{ $isToday ? 'bg-[#fae4e4] text-[#9e2a2b] font-semibold' : 'bg-transparent' }}">
                                     {{ strtoupper($d) }}
                                 </span>
                             </th>

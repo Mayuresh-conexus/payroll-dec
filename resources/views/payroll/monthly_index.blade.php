@@ -29,7 +29,7 @@
         @if(!empty($weeks))
             <div class="hidden sm:flex flex-wrap gap-1 items-center ml-2 mr-2">
                 @foreach ($weeks as $w)
-                    <span class="px-2 py-0.5 font-medium rounded text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-100">WK {{ $w }}</span>
+                    <span class="px-2 py-0.5 font-medium rounded text-[10px] bg-brand-50 text-brand-700 border border-brand-100">WK {{ $w }}</span>
                 @endforeach
             </div>
         @endif

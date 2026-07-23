@@ -2,11 +2,11 @@
 @section('title', 'Users')
 @section('page_title', 'Users')
 @section('page_header', 'User Accounts')
-@section('page_subtitle', 'Manage admin accounts. Managers are created via the Employees module.')
+@section('page_subtitle', 'Manage admin and manager accounts.')
 @section('page_action')
     <button @click="$dispatch('open-create-user')"
         class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-slate-900 text-white hover:bg-slate-800 transition">
-        + Add Admin
+        + Add User
     </button>
 @endsection
 
@@ -47,9 +47,15 @@
                             </td>
                             <td class="px-4 py-3 text-slate-600">{{ $user->email }}</td>
                             <td class="px-4 py-3 text-center">
+                                @if ($user->role === 'admin')
                                     <span class="inline-flex px-2 py-1 rounded-full text-xs bg-violet-50 text-violet-700">
-                                    Admin
-                                </span>
+                                        Admin
+                                    </span>
+                                @else
+                                    <span class="inline-flex px-2 py-1 rounded-full text-xs bg-sky-50 text-sky-700">
+                                        Manager
+                                    </span>
+                                @endif
                             </td>
                             <td class="px-4 py-3 text-center text-slate-500 text-xs">
                                 {{ $user->created_at->format('d M Y') }}
@@ -105,8 +111,8 @@
                 class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
                 <div class="flex items-start justify-between">
                     <div>
-                        <h2 class="text-lg font-semibold text-slate-900">Add admin</h2>
-                        <p class="mt-1 text-xs text-slate-500">Create a new admin account with full system access.</p>
+                        <h2 class="text-lg font-semibold text-slate-900">Add user</h2>
+                        <p class="mt-1 text-xs text-slate-500">Create a new admin or manager account.</p>
                     </div>
                     <button type="button" @click="openCreate = false"
                         class="rounded-full w-8 h-8 text-slate-400 hover:text-slate-600 hover:bg-slate-100 inline-flex items-center justify-center">✕</button>
@@ -149,7 +155,14 @@
                                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none"
                                 placeholder="Repeat password">
                         </div>
-                        <input type="hidden" name="role" value="admin">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Role <span class="text-rose-500">*</span></label>
+                            <select name="role" required
+                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none">
+                                <option value="admin" {{ old('role', 'admin') === 'admin' ? 'selected' : '' }}>Admin</option>
+                                <option value="manager" {{ old('role') === 'manager' ? 'selected' : '' }}>Manager</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="flex justify-end gap-3 pt-1">
@@ -200,7 +213,22 @@
                             <input type="email" name="email" required x-model="editingUser.email"
                                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none">
                         </div>
-                        <input type="hidden" name="role" value="admin">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Role <span class="text-rose-500">*</span></label>
+                            <template x-if="editingUser.id === {{ auth()->id() }}">
+                                <div>
+                                    <input type="hidden" name="role" value="admin">
+                                    <p class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">Admin <span class="text-xs">(you can't change your own role)</span></p>
+                                </div>
+                            </template>
+                            <template x-if="editingUser.id !== {{ auth()->id() }}">
+                                <select name="role" required x-model="editingUser.role"
+                                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none">
+                                    <option value="admin">Admin</option>
+                                    <option value="manager">Manager</option>
+                                </select>
+                            </template>
+                        </div>
                         <div>
                             <label class="block text-xs font-medium text-slate-600 mb-1">New password <span class="text-slate-400">(leave blank to keep current)</span></label>
                             <input type="password" name="password" minlength="8"

@@ -17,21 +17,14 @@ class DatabaseSeeder extends Seeder
     {
 
         $this->call([
-        EmployeeSeeder::class,
-    ]);
-    
-        // User::factory(10)->create();
-        // default test user
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+            EmployeeSeeder::class,
         ]);
 
-        // admin user for initial setup
+        // admin user for initial setup — password: password
         User::factory()->create([
             'name' => 'Admin',
             'email' => 'admin@example.com',
-            // UserFactory uses the hashed default password 'password'
+            'role' => 'admin',
         ]);
     }
 }

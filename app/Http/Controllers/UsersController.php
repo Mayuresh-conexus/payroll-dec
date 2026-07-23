@@ -11,7 +11,7 @@ class UsersController extends Controller
 {
     public function index()
     {
-        $users = User::where('role', 'admin')->orderBy('id', 'desc')->paginate(15);
+        $users = User::whereIn('role', ['admin', 'manager'])->orderBy('id', 'desc')->paginate(15);
 
         return view('users.index', compact('users'));
     }
@@ -39,6 +39,10 @@ class UsersController extends Controller
     public function update(UpdateUserRequest $request, User $user)
     {
         $data = $request->validated();
+
+        if ($user->id === auth()->id() && $data['role'] !== $user->role) {
+            return back()->withErrors(['role' => 'You cannot change your own role.']);
+        }
 
         $user->name = $data['name'];
         $user->email = $data['email'];

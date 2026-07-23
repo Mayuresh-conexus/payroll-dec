@@ -3,12 +3,20 @@
 @section('page_title', 'Manager Assignments')
 @section('page_header', 'Manager Assignments')
 @section('page_subtitle', 'Assign employees to managers. Each employee can belong to only one manager.')
+@section('page_action')
+    <button @click="$dispatch('open-create-manager')"
+        class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-slate-900 text-white hover:bg-slate-800 transition">
+        + Add Manager
+    </button>
+@endsection
 
 @section('content')
-    <div x-data="managerAssignments()" class="space-y-6">
+    <div x-data="managerAssignments()" class="space-y-6"
+        @open-create-manager.window="openCreate = true"
+        x-init="@if($errors->any() && old('_modal') === 'create-manager') openCreate = true; @endif">
 
         {{-- Validation errors --}}
-        @if ($errors->any())
+        @if ($errors->any() && old('_modal') !== 'create-manager')
             <div class="rounded-lg bg-rose-50 border border-rose-200 px-4 py-3 text-sm text-rose-700">
                 {{ $errors->first() }}
             </div>
@@ -70,12 +78,76 @@
         @empty
             <div class="bg-white rounded-xl border border-slate-200 px-6 py-12 text-center">
                 <p class="text-sm text-slate-500">No managers found.</p>
-                <p class="mt-1 text-xs text-slate-400">Go to Employees, edit an employee, and use "Grant manager login access" to create a manager account.</p>
+                <p class="mt-1 text-xs text-slate-400">Use "Add Manager" above, or grant manager access from an employee's profile in Employees.</p>
                 <a href="{{ route('employees.index') }}" class="mt-3 inline-flex items-center text-sm font-medium text-slate-700 hover:underline">
                     Go to Employees →
                 </a>
             </div>
         @endforelse
+
+        {{-- Add Manager Modal --}}
+        <div x-show="openCreate" x-cloak x-transition.opacity style="margin-top:0"
+            class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+            <div @click.away="openCreate = false"
+                class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-900">Add manager</h2>
+                        <p class="mt-1 text-xs text-slate-500">Create a manager account, then assign their team below.</p>
+                    </div>
+                    <button type="button" @click="openCreate = false"
+                        class="rounded-full w-8 h-8 text-slate-400 hover:text-slate-600 hover:bg-slate-100 inline-flex items-center justify-center">✕</button>
+                </div>
+
+                @if($errors->any() && old('_modal') === 'create-manager')
+                    <div class="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-xs text-rose-700 space-y-1">
+                        @foreach($errors->all() as $error)
+                            <p>{{ $error }}</p>
+                        @endforeach
+                    </div>
+                @endif
+
+                <form action="{{ route('users.store') }}" method="POST" class="space-y-4">
+                    @csrf
+                    <input type="hidden" name="_modal" value="create-manager">
+                    <input type="hidden" name="role" value="manager">
+
+                    <div class="grid grid-cols-1 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Full name <span class="text-rose-500">*</span></label>
+                            <input type="text" name="name" required value="{{ old('name') }}"
+                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none"
+                                placeholder="Jane Doe">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Email <span class="text-rose-500">*</span></label>
+                            <input type="email" name="email" required value="{{ old('email') }}"
+                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none"
+                                placeholder="jane@example.com">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Password <span class="text-rose-500">*</span></label>
+                            <input type="password" name="password" required minlength="8"
+                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none"
+                                placeholder="Min. 8 characters">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Confirm password <span class="text-rose-500">*</span></label>
+                            <input type="password" name="password_confirmation" required minlength="8"
+                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 outline-none"
+                                placeholder="Repeat password">
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end gap-3 pt-1">
+                        <button type="button" @click="openCreate = false"
+                            class="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-700 hover:bg-slate-50">Cancel</button>
+                        <button type="submit"
+                            class="px-4 py-2 rounded-lg bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800">Create manager</button>
+                    </div>
+                </form>
+            </div>
+        </div>
 
         {{-- Assignment Modal --}}
         <div x-show="open" x-cloak x-transition.opacity style="margin-top:0"
@@ -163,6 +235,7 @@
             function managerAssignments() {
                 return {
                     open: false,
+                    openCreate: false,
                     managerId: null,
                     managerName: '',
                     selectedIds: [],

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BackupController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\ManagerAssignmentController;
 use App\Http\Controllers\PayrollController;
@@ -82,4 +83,19 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
     Route::get('/payroll/{year}/{week}/payslip/{employee}', [\App\Http\Controllers\PayslipController::class, 'show'])
         ->name('payroll.payslip')
         ->middleware('throttle:20,1');
+
+    // Database Backups
+    Route::get('/backups', [BackupController::class, 'index'])->name('backups.index');
+    Route::post('/backups/run', [BackupController::class, 'run'])
+        ->name('backups.run')->middleware('throttle:5,1');
+    Route::get('/backups/{filename}/download', [BackupController::class, 'download'])
+        ->where('filename', '[A-Za-z0-9_\-\.]+\.sql\.gz')
+        ->name('backups.download')->middleware('throttle:10,1');
+    Route::post('/backups/{filename}/restore', [BackupController::class, 'restore'])
+        ->where('filename', '[A-Za-z0-9_\-\.]+\.sql\.gz')
+        ->name('backups.restore')->middleware('throttle:3,1');
+    Route::delete('/backups/{filename}', [BackupController::class, 'destroy'])
+        ->where('filename', '[A-Za-z0-9_\-\.]+\.sql\.gz')
+        ->name('backups.destroy');
+    Route::put('/backups/schedule', [BackupController::class, 'updateSchedule'])->name('backups.schedule.update');
 });

@@ -15,8 +15,17 @@
                 @click="openCreate = false">✕</button>
         </div>
 
+        @if($errors->any() && old('_modal') === 'create')
+            <div class="mx-6 rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-xs text-rose-700 space-y-1">
+                @foreach($errors->all() as $error)
+                    <p>{{ $error }}</p>
+                @endforeach
+            </div>
+        @endif
+
         <form action="{{ route('employees.store') }}" method="post" class="flex-1 flex flex-col min-h-0">
             @csrf
+            <input type="hidden" name="_modal" value="create">
             <div class="overflow-y-auto flex-1 px-6 pb-4 space-y-5">
             {{-- Basic details --}}
             <div class="space-y-3">
@@ -154,20 +163,23 @@
                     </p>
                     <div>
                         <label class="block text-xs font-medium text-slate-600 mb-1">Login email <span class="text-rose-500">*</span></label>
-                        <input type="email" name="manager_email"
+                        <input type="email" name="manager_email" autocomplete="off"
+                            :disabled="!grantAccess"
                             class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
                             placeholder="manager@example.com">
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-xs font-medium text-slate-600 mb-1">Password <span class="text-slate-400">(new accounts only)</span></label>
-                            <input type="password" name="manager_password" minlength="8"
+                            <input type="password" name="manager_password" minlength="8" autocomplete="new-password"
+                                :disabled="!grantAccess"
                                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
                                 placeholder="Min. 8 characters">
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-slate-600 mb-1">Confirm password</label>
-                            <input type="password" name="manager_password_confirmation" minlength="8"
+                            <input type="password" name="manager_password_confirmation" minlength="8" autocomplete="new-password"
+                                :disabled="!grantAccess"
                                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
                                 placeholder="Repeat password">
                         </div>

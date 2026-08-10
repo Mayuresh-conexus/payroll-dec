@@ -24,15 +24,15 @@ class EmployeeCrudTest extends TestCase
 
         $this->post('/employees', [
             'employee_code' => 'E001',
-            'name'          => 'John Doe',
-            'type'          => 'daily_rate',
-            'daily_rate'    => '450',
+            'name' => 'John Doe',
+            'type' => 'daily_rate',
+            'daily_rate' => '450',
         ])->assertRedirect();
 
         $this->assertDatabaseHas('employees', [
             'employee_code' => 'E001',
-            'name'          => 'John Doe',
-            'type'          => 'daily_rate',
+            'name' => 'John Doe',
+            'type' => 'daily_rate',
         ]);
     }
 
@@ -42,15 +42,15 @@ class EmployeeCrudTest extends TestCase
 
         $this->post('/employees', [
             'employee_code' => 'E002',
-            'name'          => 'Jane Doe',
-            'type'          => 'hourly',
-            'hourly_rate'   => '75',
+            'name' => 'Jane Doe',
+            'type' => 'hourly',
+            'hourly_rate' => '75',
             'hours_per_day' => '8',
         ])->assertRedirect();
 
         $this->assertDatabaseHas('employees', [
             'employee_code' => 'E002',
-            'type'          => 'hourly',
+            'type' => 'hourly',
         ]);
     }
 
@@ -62,9 +62,9 @@ class EmployeeCrudTest extends TestCase
 
         $this->post('/employees', [
             'employee_code' => 'E001',
-            'name'          => 'Another Person',
-            'type'          => 'daily_rate',
-            'daily_rate'    => '500',
+            'name' => 'Another Person',
+            'type' => 'daily_rate',
+            'daily_rate' => '500',
         ])->assertSessionHasErrors('employee_code');
     }
 
@@ -74,8 +74,8 @@ class EmployeeCrudTest extends TestCase
 
         $this->post('/employees', [
             'employee_code' => 'E003',
-            'type'          => 'daily_rate',
-            'daily_rate'    => '400',
+            'type' => 'daily_rate',
+            'daily_rate' => '400',
         ])->assertSessionHasErrors('name');
     }
 
@@ -86,9 +86,9 @@ class EmployeeCrudTest extends TestCase
 
         $this->post('/employees', [
             'employee_code' => 'E010',
-            'name'          => 'No Bank',
-            'type'          => 'daily_rate',
-            'daily_rate'    => '300',
+            'name' => 'No Bank',
+            'type' => 'daily_rate',
+            'daily_rate' => '300',
             // deliberately omit bank_name, bank_account, bank_ifsc, bank_transfer_fix_amount
         ])->assertSessionHasNoErrors();
     }
@@ -103,14 +103,14 @@ class EmployeeCrudTest extends TestCase
 
         $this->patch("/employees/{$emp->id}", [
             'employee_code' => $emp->employee_code,
-            'name'          => 'Updated Name',
-            'type'          => 'daily_rate',
-            'daily_rate'    => $emp->daily_rate,
+            'name' => 'Updated Name',
+            'type' => 'daily_rate',
+            'daily_rate' => $emp->daily_rate,
         ])->assertRedirect()
-          ->assertSessionHasNoErrors();
+            ->assertSessionHasNoErrors();
 
         $this->assertDatabaseHas('employees', [
-            'id'   => $emp->id,
+            'id' => $emp->id,
             'name' => 'Updated Name',
         ]);
     }
@@ -126,9 +126,9 @@ class EmployeeCrudTest extends TestCase
         // The controller checks: if ($request->input('type') !== $employee->type) → error
         $response = $this->patch("/employees/{$emp->id}", [
             'employee_code' => $emp->employee_code,
-            'name'          => $emp->name,
-            'type'          => 'hourly',   // ← attempting change
-            'hourly_rate'   => 50,         // provide required_if fields so only type error fires
+            'name' => $emp->name,
+            'type' => 'hourly',   // ← attempting change
+            'hourly_rate' => 50,         // provide required_if fields so only type error fires
             'hours_per_day' => 8,
         ]);
 
@@ -137,8 +137,37 @@ class EmployeeCrudTest extends TestCase
 
         // Employee type must remain unchanged
         $this->assertDatabaseHas('employees', [
-            'id'   => $emp->id,
+            'id' => $emp->id,
             'type' => 'daily_rate',
+        ]);
+    }
+
+    public function test_admin_can_update_employee_with_linked_manager_without_touching_manager_fields(): void
+    {
+        // Regression guard: the edit form's manager email/password inputs are only
+        // meant to be submitted when the "change login" toggle is used. A basic
+        // update (manager fields omitted) must not trip manager_email/manager_password
+        // validation for an employee that already has a linked manager account.
+        $this->actingAs($this->admin());
+
+        $emp = Employee::factory()->create(['type' => 'daily_rate']);
+        $manager = User::factory()->create(['role' => 'manager', 'employee_id' => $emp->id]);
+
+        $this->patch("/employees/{$emp->id}", [
+            'employee_code' => $emp->employee_code,
+            'name' => 'Updated Name',
+            'type' => 'daily_rate',
+            'daily_rate' => $emp->daily_rate,
+        ])->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('employees', [
+            'id' => $emp->id,
+            'name' => 'Updated Name',
+        ]);
+        $this->assertDatabaseHas('users', [
+            'id' => $manager->id,
+            'email' => $manager->email,
         ]);
     }
 

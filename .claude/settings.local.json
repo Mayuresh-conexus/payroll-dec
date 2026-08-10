@@ -7,7 +7,8 @@
       "PowerShell(Get-Process mysqld -ErrorAction SilentlyContinue)",
       "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\xampp\\\\htdocs\\\\payroll-dec\\\\resources\\\\views\\\\managers\")",
       "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\xampp\\\\htdocs\\\\payroll-dec\\\\resources\\\\views\\\\dashboard\")",
-      "Bash(vendor/bin/pint --dirty)"
+      "Bash(vendor/bin/pint --dirty)",
+      "Bash(grep -rln 'protected $casts' /Users/mayuresh/Projects/Conexus-NS/payroll-dec/app/Models/)"
     ]
   }
 }

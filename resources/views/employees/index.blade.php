@@ -15,7 +15,15 @@
     @include('employees.partials._script')
 
     <div x-data='employeesData(@json(url("employees")))' class="space-y-6"
-        @open-create-employee.window="openCreate = true">
+        @open-create-employee.window="openCreate = true"
+        x-init="
+            @if($errors->any() && old('_modal') === 'create') openCreate = true; @endif
+            @if($errors->any() && old('_modal') === 'edit')
+                openEdit = true;
+                editingEmployee = @json($employees->firstWhere('id', (int) old('_edit_id')) ?? []);
+                if (editingEmployee.id) fetchRates(editingEmployee.id);
+            @endif
+        ">
 
         @include('employees.partials._search_bar')
 

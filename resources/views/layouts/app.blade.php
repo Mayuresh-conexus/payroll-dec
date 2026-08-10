@@ -116,6 +116,18 @@
                         </svg>
                         <span x-show="!sidebarCollapsed" x-transition.opacity>Assignments</span>
                     </a>
+
+                    {{-- Backups --}}
+                    <a href="{{ route('backups.index') }}"
+                        class="group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
+                          @if (request()->routeIs('backups.*')) bg-brand-600 text-white @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
+                        <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('backups.*')) text-white @else text-slate-500 group-hover:text-brand-400 @endif"
+                            fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.07-3.694 3.75-8.25 3.75s-8.25-1.68-8.25-3.75S7.444 2.625 12 2.625s8.25 1.68 8.25 3.75Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.375v5.25C3.75 13.694 7.444 15.375 12 15.375s8.25-1.68 8.25-3.75v-5.25M3.75 11.625v5.25c0 2.07 3.694 3.75 8.25 3.75s8.25-1.68 8.25-3.75v-5.25" />
+                        </svg>
+                        <span x-show="!sidebarCollapsed" x-transition.opacity>Backups</span>
+                    </a>
                 @endif
 
                 {{-- Attendance --}}

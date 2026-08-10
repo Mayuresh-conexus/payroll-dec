@@ -14,10 +14,20 @@
                 @click="openEdit = false">✕</button>
         </div>
 
+        @if($errors->any() && old('_modal') === 'edit')
+            <div class="mx-6 mt-4 rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-xs text-rose-700 space-y-1">
+                @foreach($errors->all() as $error)
+                    <p>{{ $error }}</p>
+                @endforeach
+            </div>
+        @endif
+
         <form method="POST" :action="baseUpdateUrl + '/' + (editingEmployee ? editingEmployee.id : '')"
             class="space-y-5 flex-1 flex flex-col min-h-0">
             @csrf
             @method('PUT')
+            <input type="hidden" name="_modal" value="edit">
+            <input type="hidden" name="_edit_id" :value="editingEmployee ? editingEmployee.id : ''">
 
             <div class="overflow-auto flex-1 pr-6 pl-6 pb-6 min-h-0">
 
@@ -245,20 +255,23 @@
                             <div x-show="changePassword && !revokeAccess" x-collapse class="space-y-3">
                                 <div>
                                     <label class="block text-xs font-medium text-slate-600 mb-1">New login email</label>
-                                    <input type="email" name="manager_email"
+                                    <input type="email" name="manager_email" autocomplete="off"
+                                        :disabled="!changePassword || revokeAccess"
                                         :value="editingEmployee.user.email"
                                         class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none">
                                 </div>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                         <label class="block text-xs font-medium text-slate-600 mb-1">New password <span class="text-slate-400">(leave blank to keep)</span></label>
-                                        <input type="password" name="manager_password" minlength="8"
+                                        <input type="password" name="manager_password" minlength="8" autocomplete="new-password"
+                                            :disabled="!changePassword || revokeAccess"
                                             class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
                                             placeholder="Leave blank to keep">
                                     </div>
                                     <div>
                                         <label class="block text-xs font-medium text-slate-600 mb-1">Confirm new password</label>
-                                        <input type="password" name="manager_password_confirmation" minlength="8"
+                                        <input type="password" name="manager_password_confirmation" minlength="8" autocomplete="new-password"
+                                            :disabled="!changePassword || revokeAccess"
                                             class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none">
                                     </div>
                                 </div>
@@ -283,20 +296,23 @@
                                 </p>
                                 <div>
                                     <label class="block text-xs font-medium text-slate-600 mb-1">Login email <span class="text-rose-500">*</span></label>
-                                    <input type="email" name="manager_email"
+                                    <input type="email" name="manager_email" autocomplete="off"
+                                        :disabled="!grantAccess"
                                         class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
                                         placeholder="manager@example.com">
                                 </div>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                         <label class="block text-xs font-medium text-slate-600 mb-1">Password <span class="text-slate-400">(new accounts only)</span></label>
-                                        <input type="password" name="manager_password" minlength="8"
+                                        <input type="password" name="manager_password" minlength="8" autocomplete="new-password"
+                                            :disabled="!grantAccess"
                                             class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
                                             placeholder="Min. 8 characters">
                                     </div>
                                     <div>
                                         <label class="block text-xs font-medium text-slate-600 mb-1">Confirm password</label>
-                                        <input type="password" name="manager_password_confirmation" minlength="8"
+                                        <input type="password" name="manager_password_confirmation" minlength="8" autocomplete="new-password"
+                                            :disabled="!grantAccess"
                                             class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400/60 outline-none"
                                             placeholder="Repeat password">
                                     </div>

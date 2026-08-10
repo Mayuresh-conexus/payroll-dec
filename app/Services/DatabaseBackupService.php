@@ -141,7 +141,7 @@ class DatabaseBackupService
 
     private function runDump(string $optionFile, string $destPath): void
     {
-        $process = new Process([
+        $command = [
             config('backup.mysqldump_path'),
             '--defaults-extra-file='.$optionFile,
             '--single-transaction',
@@ -150,10 +150,19 @@ class DatabaseBackupService
             '--triggers',
             '--events',
             '--no-tablespaces',
-            '--set-gtid-purged=OFF',
             '--default-character-set=utf8mb4',
-            $this->databaseName(),
-        ]);
+        ];
+
+        // MariaDB's mysqldump doesn't recognize --set-gtid-purged (it predates MySQL's
+        // GTID_PURGED variable and uses its own replication model), so only pass it when
+        // the binary actually advertises support — otherwise the dump aborts immediately.
+        if ($this->mysqldumpSupportsGtidPurged()) {
+            $command[] = '--set-gtid-purged=OFF';
+        }
+
+        $command[] = $this->databaseName();
+
+        $process = new Process($command);
         $process->setTimeout(config('backup.process_timeout'));
 
         $gz = @gzopen($destPath, 'wb9');
@@ -247,6 +256,20 @@ class DatabaseBackupService
         chmod($path, 0600);
 
         return $path;
+    }
+
+    private function mysqldumpSupportsGtidPurged(): bool
+    {
+        static $supported = null;
+
+        if ($supported !== null) {
+            return $supported;
+        }
+
+        $process = new Process([config('backup.mysqldump_path'), '--help']);
+        $process->run();
+
+        return $supported = str_contains($process->getOutput(), 'set-gtid-purged');
     }
 
     private function databaseName(): string

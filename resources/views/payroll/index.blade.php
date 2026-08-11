@@ -27,7 +27,11 @@
         @if ($run)
             <a href="{{ route('payroll.exportWeekCsv', ['year' => $year, 'week' => $week]) }}"
                class="px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition">
-                Export
+                Export Excel
+            </a>
+            <a href="{{ route('payroll.exportWeekPdf', ['year' => $year, 'week' => $week]) }}"
+               class="px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition">
+                Export PDF
             </a>
         @endif
         

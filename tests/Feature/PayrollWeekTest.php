@@ -358,6 +358,45 @@ class PayrollWeekTest extends TestCase
         $this->assertEquals(300, (float) $sheet->getCell('Q5')->getValue());
     }
 
+    public function test_guest_cannot_export_week_pdf(): void
+    {
+        $this->get('/payroll/export-week-pdf?year=2026&week=10')
+            ->assertRedirect(route('login'));
+    }
+
+    public function test_manager_cannot_export_week_pdf(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'manager']));
+
+        $this->get('/payroll/export-week-pdf?year=2026&week=10')
+            ->assertForbidden();
+    }
+
+    public function test_export_week_pdf_returns_404_when_no_run_exists(): void
+    {
+        $this->actingAs($this->admin());
+
+        $this->get('/payroll/export-week-pdf?year=2026&week=99')
+            ->assertNotFound();
+    }
+
+    public function test_admin_can_export_week_pdf(): void
+    {
+        $admin = $this->admin();
+        $this->actingAs($admin);
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 200]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0],
+        ], 2026, 15, false);
+
+        $response = $this->get('/payroll/export-week-pdf?year=2026&week=15');
+
+        $response->assertOk();
+        $response->assertHeader('content-type', 'application/pdf');
+        $this->assertStringStartsWith('%PDF-', $response->getContent());
+    }
+
     // ── Monthly settlement clears weekly carry-forward ────────────────────────
 
     public function test_monthly_settlement_clears_weekly_carry_forward(): void

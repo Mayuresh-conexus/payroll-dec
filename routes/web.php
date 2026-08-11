@@ -68,6 +68,7 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
     Route::post('/payroll/finalize-week', [PayrollController::class, 'finalizeWeek'])->name('payroll.finalizeWeek'); // MISSING-02
     Route::post('/payroll/revert-week', [PayrollController::class, 'revertWeek'])->name('payroll.revertWeek');
     Route::get('/payroll/export-week', [PayrollController::class, 'exportWeekCsv'])->name('payroll.exportWeekCsv')->middleware('throttle:10,1');
+    Route::get('/payroll/export-week-pdf', [PayrollController::class, 'exportWeekPdf'])->name('payroll.exportWeekPdf')->middleware('throttle:10,1');
 
     // Monthly payroll
     Route::get('/payroll/monthly', [\App\Http\Controllers\MonthlyPayrollController::class, 'index'])->name('payroll.monthly.index');

@@ -11,6 +11,7 @@ use App\Models\PayrollItem;
 use App\Models\PayrollRun;
 use App\Services\AttendanceService;
 use App\Services\PayrollService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -348,11 +349,16 @@ class PayrollController extends Controller
     /**
      * Weekly payroll export CSV, now including day wise IN / OFF columns
      */
-    public function exportWeekCsv(Request $request)
+    /**
+     * Resolve the saved PayrollRun, the raw attendance for the week (keyed by
+     * employee_id), and the authoritative service-computed rows (cash/bank/weekly/
+     * arrears) — the single source of truth shared by the web page and every
+     * export format, so they never disagree.
+     *
+     * @return array{0: PayrollRun, 1: \Illuminate\Support\Collection, 2: \Illuminate\Support\Collection, 3: \Illuminate\Support\Collection}
+     */
+    private function resolveWeekExportData(int $year, int $week): array
     {
-        $year = (int) $request->input('year', now()->year);
-        $week = (int) $request->input('week', now()->weekOfYear);
-
         $run = PayrollRun::with('items.employee')
             ->where('year', $year)
             ->where('week_number', $week)
@@ -378,6 +384,16 @@ class PayrollController extends Controller
         $service = app(PayrollService::class);
         $rawRows = $service->buildRowsFromAttendance($year, $week);
         $rows = $service->mergeWithPayrollRun($rawRows, $run, $dailyLockedWeek, $hourlyLockedWeek);
+
+        return [$run, $rows, $dailyAttendance, $hourlyAttendance];
+    }
+
+    public function exportWeekCsv(Request $request)
+    {
+        $year = (int) $request->input('year', now()->year);
+        $week = (int) $request->input('week', now()->weekOfYear);
+
+        [$run, $rows, $dailyAttendance, $hourlyAttendance] = $this->resolveWeekExportData($year, $week);
         $rowsByEmployee = $rows->keyBy(fn (array $r) => $r['employee']->id);
 
         $dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -711,6 +727,36 @@ class PayrollController extends Controller
         }, $fileName, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
+    }
+
+    /**
+     * Weekly payroll register as a printable PDF — a compact summary (no day-by-day
+     * grid, which stays an Excel-only feature) suitable for printing/sharing.
+     */
+    public function exportWeekPdf(Request $request)
+    {
+        $year = (int) $request->input('year', now()->year);
+        $week = (int) $request->input('week', now()->weekOfYear);
+
+        [$run, $rows] = $this->resolveWeekExportData($year, $week);
+
+        $totals = [
+            'weekly' => $rows->sum('weekly_amount'),
+            'cash' => $rows->sum('cash_amount'),
+            'bank' => $rows->sum('bank_amount'),
+            'arrears' => $rows->sum('arrears'),
+        ];
+
+        $pdf = Pdf::loadView('payroll.pdf.weekly', [
+            'year' => $year,
+            'week' => $week,
+            'run' => $run,
+            'rows' => $rows,
+            'totals' => $totals,
+            'generatedAt' => now(),
+        ])->setPaper('a4', 'landscape');
+
+        return $pdf->download("payroll_week_{$week}_{$year}.pdf");
     }
 
     /**

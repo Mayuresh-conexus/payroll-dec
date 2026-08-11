@@ -285,6 +285,200 @@ class PayrollWeekTest extends TestCase
         }
     }
 
+    // ── Deactivated employees ─────────────────────────────────────────────────
+
+    public function test_deactivated_employee_with_recorded_attendance_still_appears_flagged(): void
+    {
+        // Deactivating mid-week must not silently drop pay for days already worked —
+        // the row stays (so it is still calculated) but is flagged as inactive.
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create([
+            'name' => 'Deactivated Worker',
+            'type' => 'daily_rate',
+            'daily_rate' => 500,
+            'is_active' => true,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 0, 'fri' => 0, 'sat' => 0, 'sun' => 0],
+        ], 2026, 20, false);
+
+        $emp->update(['is_active' => false]);
+
+        $response = $this->get('/payroll?year=2026&week=20');
+
+        $response->assertOk()
+            ->assertSee('Deactivated Worker')  // still listed and still calculated
+            ->assertSee('Inactive');           // but clearly flagged
+
+        $this->assertEquals(1500.0, $response->viewData('rows')->first()['gross_amount']);
+    }
+
+    public function test_daily_pay_stops_from_the_deactivation_date(): void
+    {
+        // W33/2026 runs Mon 10 Aug – Sun 16 Aug. Deactivated on Tue 11 Aug means only
+        // Mon 10 Aug is payable; the rest of the week is excluded.
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 500, 'is_active' => true]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0],
+        ], 2026, 33, false);
+
+        $emp->update(['is_active' => false, 'deactivated_at' => '2026-08-11']);
+
+        $rows = app(\App\Services\PayrollService::class)->buildRowsFromAttendance(2026, 33);
+        $row = $rows->first();
+
+        $this->assertEquals(1, $row['present_days'], 'only Mon 10 Aug is payable');
+        $this->assertEquals(500.0, $row['gross_amount'], '1 day x 500');
+    }
+
+    public function test_hourly_pay_stops_from_the_deactivation_date(): void
+    {
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create(['type' => 'hourly', 'hourly_rate' => 10, 'hours_per_day' => 8, 'is_active' => true]);
+
+        app(\App\Services\AttendanceService::class)->saveHourlyEmployee($emp->id, [
+            'hours_map' => ['mon' => 8, 'tue' => 8, 'wed' => 8, 'thu' => 8, 'fri' => 8, 'sat' => 0, 'sun' => 0],
+            'ot_map' => ['mon' => 2, 'tue' => 2, 'wed' => 0, 'thu' => 0, 'fri' => 0, 'sat' => 0, 'sun' => 0],
+        ], 2026, 33, false);
+
+        $emp->update(['is_active' => false, 'deactivated_at' => '2026-08-11']);
+
+        $row = app(\App\Services\PayrollService::class)->buildRowsFromAttendance(2026, 33)->first();
+
+        // Mon only: 8 total hours of which 2 are OT -> 6 regular + 2 OT.
+        $this->assertEquals(6.0, $row['total_hours']);
+        $this->assertEquals(2.0, $row['overtime_hours']);
+        $this->assertEquals(80.0, $row['gross_amount'], '(6 + 2) x 10');
+    }
+
+    public function test_week_entirely_after_deactivation_pays_nothing(): void
+    {
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 500, 'is_active' => true]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 0, 'sun' => 0],
+        ], 2026, 33, false);
+
+        $emp->update(['is_active' => false, 'deactivated_at' => '2026-08-03']); // before the week starts
+
+        $row = app(\App\Services\PayrollService::class)->buildRowsFromAttendance(2026, 33)->first();
+
+        $this->assertEquals(0, $row['present_days']);
+        $this->assertEquals(0.0, $row['gross_amount']);
+    }
+
+    public function test_week_entirely_before_deactivation_is_unaffected(): void
+    {
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 500, 'is_active' => true]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 0, 'sun' => 0],
+        ], 2026, 33, false);
+
+        $emp->update(['is_active' => false, 'deactivated_at' => '2026-09-01']); // long after
+
+        $row = app(\App\Services\PayrollService::class)->buildRowsFromAttendance(2026, 33)->first();
+
+        $this->assertEquals(5, $row['present_days']);
+        $this->assertEquals(2500.0, $row['gross_amount']);
+    }
+
+    public function test_recalculate_from_attendance_keeps_the_deactivation_cutoff(): void
+    {
+        // Without the cutoff in AttendanceService, recalculating would silently
+        // restore the full week's pay and undo the deactivation.
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 500, 'is_active' => true]);
+
+        $attendance = ['days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0]];
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, $attendance, 2026, 33, false);
+
+        $emp->update(['is_active' => false, 'deactivated_at' => '2026-08-11']);
+
+        // Re-running attendance save is what "Recalculate from Attendance" does.
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, $attendance, 2026, 33, false);
+
+        $item = PayrollItem::where('employee_id', $emp->id)->first();
+        $this->assertEquals(1, $item->present_days, 'only Mon 10 Aug remains payable');
+        $this->assertEquals(500.0, (float) $item->gross_amount);
+
+        // The raw attendance record still shows every marked day.
+        $this->assertEquals(6, \App\Models\DailyRateAttendance::where('employee_id', $emp->id)->first()->present_days);
+    }
+
+    public function test_status_endpoint_stores_the_chosen_cutoff_date_and_logs_history(): void
+    {
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 500, 'is_active' => true]);
+
+        // Backdated cut-off: "he actually left last Friday".
+        $this->put("/employees/{$emp->id}/status", [
+            'is_active' => 0,
+            'effective_from' => '2026-08-07',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertFalse((bool) $emp->fresh()->is_active);
+        $this->assertEquals('2026-08-07', $emp->fresh()->deactivated_at?->toDateString());
+        $logged = $emp->statusChanges()->latest('id')->first();
+        $this->assertFalse($logged->is_active);
+        $this->assertEquals('2026-08-07', $logged->effective_from->toDateString());
+
+        $this->put("/employees/{$emp->id}/status", [
+            'is_active' => 1,
+            'effective_from' => now()->toDateString(),
+        ])->assertSessionHasNoErrors();
+
+        $this->assertTrue((bool) $emp->fresh()->is_active);
+        $this->assertNull($emp->fresh()->deactivated_at);
+        $this->assertEquals(2, $emp->statusChanges()->count());
+    }
+
+    public function test_status_endpoint_rejects_a_future_effective_date(): void
+    {
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 500, 'is_active' => true]);
+
+        $this->put("/employees/{$emp->id}/status", [
+            'is_active' => 0,
+            'effective_from' => now()->addWeek()->toDateString(),
+        ])->assertSessionHasErrors('effective_from');
+
+        $this->assertTrue((bool) $emp->fresh()->is_active);
+    }
+
+    public function test_manager_cannot_change_employment_status(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'manager']));
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'is_active' => true]);
+
+        $this->put("/employees/{$emp->id}/status", [
+            'is_active' => 0,
+            'effective_from' => now()->toDateString(),
+        ])->assertForbidden();
+
+        $this->assertTrue((bool) $emp->fresh()->is_active);
+    }
+
+    public function test_deactivated_employee_without_attendance_does_not_appear(): void
+    {
+        $this->actingAs($this->admin());
+        Employee::factory()->create([
+            'name' => 'Gone Worker',
+            'type' => 'daily_rate',
+            'daily_rate' => 500,
+            'is_active' => false,
+        ]);
+
+        $this->get('/payroll?year=2026&week=21')
+            ->assertOk()
+            ->assertDontSee('Gone Worker');
+    }
+
     // ── Export ────────────────────────────────────────────────────────────────
 
     public function test_export_shows_correct_cash_and_bank_when_payroll_never_explicitly_saved(): void

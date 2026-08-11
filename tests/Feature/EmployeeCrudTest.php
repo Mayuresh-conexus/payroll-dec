@@ -171,6 +171,55 @@ class EmployeeCrudTest extends TestCase
         ]);
     }
 
+    public function test_deactivating_removes_employee_from_attendance_scope(): void
+    {
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 500, 'is_active' => true]);
+
+        $this->put("/employees/{$emp->id}/status", [
+            'is_active' => 0,
+            'effective_from' => now()->toDateString(),
+        ])->assertSessionHasNoErrors();
+
+        $this->assertFalse((bool) $emp->fresh()->is_active);
+        $this->assertFalse(Employee::where('is_active', true)->whereKey($emp->id)->exists());
+
+        $this->put("/employees/{$emp->id}/status", [
+            'is_active' => 1,
+            'effective_from' => now()->toDateString(),
+        ])->assertSessionHasNoErrors();
+
+        $this->assertTrue((bool) $emp->fresh()->is_active);
+    }
+
+    public function test_saving_the_edit_form_never_changes_employment_status(): void
+    {
+        // Status moved out of the form. If update() still read the (now absent)
+        // is_active field it would treat every save as "unchecked" and deactivate.
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 500, 'is_active' => true]);
+
+        $this->patch("/employees/{$emp->id}", [
+            'employee_code' => $emp->employee_code,
+            'name' => 'Renamed',
+            'type' => 'daily_rate',
+            'daily_rate' => 500,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertTrue((bool) $emp->fresh()->is_active, 'a normal save must not deactivate');
+
+        // Even an explicitly posted is_active is ignored by the form endpoint.
+        $this->patch("/employees/{$emp->id}", [
+            'employee_code' => $emp->employee_code,
+            'name' => 'Renamed Again',
+            'type' => 'daily_rate',
+            'daily_rate' => 500,
+            'is_active' => 0,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertTrue((bool) $emp->fresh()->is_active);
+    }
+
     // ── Soft delete ───────────────────────────────────────────────────────────
 
     public function test_deleted_employee_is_soft_deleted(): void

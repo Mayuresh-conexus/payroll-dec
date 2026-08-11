@@ -19,6 +19,9 @@ use Illuminate\Support\Facades\DB;
  */
 class PayrollService
 {
+    /** Weekday keys in ISO order, so the index is the offset from the week's Monday. */
+    private const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
     /**
      * Build fresh attendance-based rows for a given year/week.
      * Each row is an array describing one employee's pay for the week.
@@ -48,6 +51,24 @@ class PayrollService
             $presentDays = $att->present_days ?? 0;
             $dailyRate = $employee->rateAt($weekStart, 'daily_rate') ?? $employee->daily_rate ?? 0;
             $overtimeAmount = $att->overtime_amount ?? 0;
+
+            // Deactivated mid-week: only days before the deactivation date are payable.
+            if ($employee->deactivated_at) {
+                $daysMap = is_array($att->days_map) ? $att->days_map : [];
+                $overtimeMap = is_array($att->overtime_map) ? $att->overtime_map : [];
+                $presentDays = 0;
+                $overtimeAmount = 0.0;
+
+                foreach (self::DAY_KEYS as $offset => $dayKey) {
+                    if (! $employee->isPaidOn($weekStart->copy()->addDays($offset))) {
+                        continue;
+                    }
+                    if (! empty($daysMap[$dayKey])) {
+                        $presentDays++;
+                    }
+                    $overtimeAmount += (float) ($overtimeMap[$dayKey] ?? 0);
+                }
+            }
             $bankAmountFix = $employee->bank_transfer_fix_amount ?? 0;
             $gross = ($presentDays * $dailyRate) + $overtimeAmount;
             $sunPresent = ! empty($att->days_map['sun']) && (int) $att->days_map['sun'] === 1;
@@ -77,6 +98,26 @@ class PayrollService
 
             $hours = $att->total_hours ?? 0;
             $ot = $att->overtime_hours ?? 0;
+
+            // Deactivated mid-week: only hours before the deactivation date are payable.
+            // hours_map holds each day's total (OT included); ot_map the OT portion.
+            if ($employee->deactivated_at) {
+                $hoursMap = is_array($att->hours_map) ? $att->hours_map : [];
+                $otMap = is_array($att->ot_map) ? $att->ot_map : [];
+                $hours = 0.0;
+                $ot = 0.0;
+
+                foreach (self::DAY_KEYS as $offset => $dayKey) {
+                    if (! $employee->isPaidOn($weekStart->copy()->addDays($offset))) {
+                        continue;
+                    }
+                    $dayTotal = (float) ($hoursMap[$dayKey] ?? 0);
+                    $dayOt = (float) ($otMap[$dayKey] ?? 0);
+                    $hours += max(0, $dayTotal - $dayOt);
+                    $ot += $dayOt;
+                }
+            }
+
             $rate = $employee->rateAt($weekStart, 'hourly_rate') ?? $employee->hourly_rate ?? 0;
             $gross = ($hours * $rate) + ($ot * $rate);
             $bankAmountFix = $employee->bank_transfer_fix_amount ?? 0;

@@ -32,13 +32,31 @@ class Employee extends Model
         'bank_transfer_fix_amount',
         'weekly_active_days',
         'is_active',
+        'deactivated_at',
     ];
 
     protected $casts = [
         'joining_date' => 'date',
+        'deactivated_at' => 'date',
         'is_active' => 'boolean',
         'hours_per_day' => 'float',
     ];
+
+    /**
+     * Whether work done on a given date is payable.
+     *
+     * Deactivation takes effect from its own date, so the last payable day is the
+     * one before it. Employees who were never deactivated are always payable.
+     */
+    public function isPaidOn(\DateTimeInterface $date): bool
+    {
+        if ($this->deactivated_at === null) {
+            return true;
+        }
+
+        return Carbon::instance($date)->startOfDay()
+            ->lt($this->deactivated_at->copy()->startOfDay());
+    }
 
     /** The manager user account linked to this employee, if any. */
     public function user(): HasOne
@@ -49,6 +67,11 @@ class Employee extends Model
     public function rates(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(EmployeeRate::class);
+    }
+
+    public function statusChanges(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(EmployeeStatusChange::class);
     }
 
     public function managers(): BelongsToMany
@@ -84,6 +107,84 @@ class Employee extends Model
             ->first();
 
         return $rate ? (float) $rate->amount : (float) ($this->{$type} ?? 0);
+    }
+
+    /**
+     * The rate history entry actually in effect on a given date (today by default).
+     *
+     * Unlike latestRateOf(), a future-dated entry is NOT considered — a rate
+     * scheduled to start next week is not the rate in effect now.
+     *
+     * $type: daily_rate | hourly_rate | hours_per_day
+     */
+    public function rateEntryAt(string $type, ?\DateTimeInterface $date = null): ?EmployeeRate
+    {
+        $on = Carbon::instance($date ?? now())->toDateString();
+
+        // Use the eager-loaded relation when present to avoid N+1 in list views.
+        if ($this->relationLoaded('rates')) {
+            return $this->rates
+                ->filter(function (EmployeeRate $rate) use ($type, $on) {
+                    if ($rate->rate_type !== $type) {
+                        return false;
+                    }
+                    $from = $rate->effective_from ? Carbon::parse($rate->effective_from)->toDateString() : null;
+                    $to = $rate->effective_to ? Carbon::parse($rate->effective_to)->toDateString() : null;
+
+                    return ! ($from !== null && $from > $on) && ! ($to !== null && $to < $on);
+                })
+                // Sort defensively rather than trusting the eager-load's ordering.
+                ->sort(fn (EmployeeRate $a, EmployeeRate $b) => [$b->effective_from, $b->id] <=> [$a->effective_from, $a->id])
+                ->first();
+        }
+
+        return $this->rates()
+            ->where('rate_type', $type)
+            ->where(function ($q) use ($on) {
+                $q->whereNull('effective_from')->orWhere('effective_from', '<=', $on);
+            })
+            ->where(function ($q) use ($on) {
+                $q->whereNull('effective_to')->orWhere('effective_to', '>=', $on);
+            })
+            ->orderByDesc('effective_from')
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    /**
+     * Rate amount in effect today, falling back to the denormalized column when
+     * there is no applicable history entry.
+     */
+    public function currentRateOf(string $type): ?float
+    {
+        $entry = $this->rateEntryAt($type);
+
+        return $entry ? (float) $entry->amount : (float) ($this->{$type} ?? 0);
+    }
+
+    /**
+     * The next rate change scheduled to start after today, if one exists.
+     */
+    public function upcomingRateEntryOf(string $type): ?EmployeeRate
+    {
+        $today = now()->toDateString();
+
+        if ($this->relationLoaded('rates')) {
+            return $this->rates
+                ->filter(fn (EmployeeRate $rate) => $rate->rate_type === $type
+                    && $rate->effective_from
+                    && Carbon::parse($rate->effective_from)->toDateString() > $today)
+                ->sort(fn (EmployeeRate $a, EmployeeRate $b) => [$a->effective_from, $a->id] <=> [$b->effective_from, $b->id])
+                ->first();
+        }
+
+        return $this->rates()
+            ->where('rate_type', $type)
+            ->whereNotNull('effective_from')
+            ->where('effective_from', '>', $today)
+            ->orderBy('effective_from')
+            ->orderBy('id')
+            ->first();
     }
 
     /**

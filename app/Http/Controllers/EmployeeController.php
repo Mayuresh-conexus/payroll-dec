@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreEmployeeRequest;
 use App\Http\Requests\UpdateEmployeeRequest;
+use App\Http\Requests\UpdateManagerAccessRequest;
 use App\Models\AuditLog;
 use App\Models\DailyRateAttendance;
 use App\Models\Employee;
@@ -11,8 +12,10 @@ use App\Models\EmployeeRate;
 use App\Models\HourlyAttendance;
 use App\Models\PayrollItem;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
@@ -170,7 +173,39 @@ class EmployeeController extends Controller
                 ['key' => 'hours_per_day', 'label' => 'Hours / Day'],
             ];
 
-        return view('employees.edit', compact('employee', 'ratesByType', 'creators', 'rateTypeTabs'));
+        // Employee-level status events, shown alongside rate changes in the timeline.
+        $statusChanges = $employee->statusChanges()
+            ->orderByDesc('effective_from')
+            ->orderByDesc('id')
+            ->get();
+
+        $creators = $creators->union(
+            User::whereIn('id', $statusChanges->pluck('created_by')->filter()->unique())
+                ->pluck('name', 'id')
+        );
+
+        // Manager access panel: the linked login (if any), the team they already
+        // look after, and the pool of employees not yet claimed by any manager.
+        $managerUser = $employee->user()->first();
+        $assignedEmployeeIds = $managerUser
+            ? $managerUser->assignedEmployees()->pluck('employees.id')->all()
+            : [];
+
+        $selectableEmployees = Employee::where('is_active', true)
+            ->whereKeyNot($employee->id)
+            ->where(function ($q) use ($assignedEmployeeIds) {
+                $q->whereDoesntHave('managers');
+                if ($assignedEmployeeIds !== []) {
+                    $q->orWhereIn('id', $assignedEmployeeIds);
+                }
+            })
+            ->orderBy('name')
+            ->get(['id', 'name', 'employee_code', 'department']);
+
+        return view('employees.edit', compact(
+            'employee', 'ratesByType', 'creators', 'rateTypeTabs', 'statusChanges',
+            'managerUser', 'assignedEmployeeIds', 'selectableEmployees',
+        ));
     }
 
     public function store(StoreEmployeeRequest $request)
@@ -245,40 +280,31 @@ class EmployeeController extends Controller
 
         $data = $request->validated();
 
-        // force boolean from checkbox 0 or 1
-        $data['is_active'] = $request->boolean('is_active');
+        // Status is changed through its own endpoint, never as a side effect of
+        // saving the form. Without this guard a form that omits the field would
+        // read as "unchecked" and silently deactivate the employee.
+        unset($data['is_active'], $data['deactivated_at']);
 
-        // detect rate changes and create EmployeeRate entries instead of silently overwriting history
-        $effectiveFrom = $request->input('rate_effective_from', now()->toDateString());
+        // Fall back to today only when the field is absent or blank — the middleware
+        // converts an empty submitted value to null, which would otherwise be stored
+        // as a null effective_from and silently rank last in every rate lookup.
+        $effectiveFrom = $request->input('rate_effective_from') ?: now()->toDateString();
 
-        // daily_rate
-        if (array_key_exists('daily_rate', $data) && $data['daily_rate'] !== $employee->daily_rate) {
+        // Detect rate changes and append EmployeeRate history rows rather than
+        // silently overwriting history.
+        foreach (['daily_rate', 'hourly_rate', 'hours_per_day'] as $rateType) {
+            if (! array_key_exists($rateType, $data)) {
+                continue;
+            }
+
+            if (! $this->rateValueChanged($data[$rateType], $employee->{$rateType})) {
+                continue;
+            }
+
             EmployeeRate::create([
                 'employee_id' => $employee->id,
-                'rate_type' => 'daily_rate',
-                'amount' => $data['daily_rate'] ?? 0,
-                'effective_from' => $effectiveFrom,
-                'created_by' => auth()->id(),
-            ]);
-        }
-
-        // hourly_rate
-        if (array_key_exists('hourly_rate', $data) && $data['hourly_rate'] !== $employee->hourly_rate) {
-            EmployeeRate::create([
-                'employee_id' => $employee->id,
-                'rate_type' => 'hourly_rate',
-                'amount' => $data['hourly_rate'] ?? 0,
-                'effective_from' => $effectiveFrom,
-                'created_by' => auth()->id(),
-            ]);
-        }
-
-        // hours_per_day
-        if (array_key_exists('hours_per_day', $data) && $data['hours_per_day'] !== $employee->hours_per_day) {
-            EmployeeRate::create([
-                'employee_id' => $employee->id,
-                'rate_type' => 'hours_per_day',
-                'amount' => $data['hours_per_day'] ?? 0,
+                'rate_type' => $rateType,
+                'amount' => $data[$rateType] ?? 0,
                 'effective_from' => $effectiveFrom,
                 'created_by' => auth()->id(),
             ]);
@@ -287,37 +313,13 @@ class EmployeeController extends Controller
         // still update the employee table for convenience (UI, defaults)
         $employee->update($data);
 
-        // Handle manager user account changes
-        $linkedUser = $employee->user()->first();
+        // Keep the denormalized rate columns in step with the rate actually in effect.
+        // A backdated entry must not leave the column advertising a value that
+        // latestRateOf()/rateAt() would never return (both order by effective_from).
+        $this->syncDenormalizedRates($employee);
 
-        if ($request->boolean('revoke_manager_access') && $linkedUser) {
-            $linkedUser->delete();
-        } elseif ($request->boolean('grant_manager_access') && ! $linkedUser && ($data['manager_email'] ?? null)) {
-            $existingUser = User::where('email', $data['manager_email'])->first();
-
-            if ($existingUser) {
-                // Link the existing unlinked manager account to this employee
-                $existingUser->employee_id = $employee->id;
-                $existingUser->save();
-            } else {
-                if (empty($data['manager_password'])) {
-                    return back()->withErrors(['manager_password' => 'A password is required when creating a new manager account.'])->withInput();
-                }
-                User::create([
-                    'name' => $employee->name,
-                    'email' => $data['manager_email'],
-                    'password' => bcrypt($data['manager_password']),
-                    'role' => 'manager',
-                    'employee_id' => $employee->id,
-                ]);
-            }
-        } elseif ($linkedUser && ($data['manager_email'] ?? null)) {
-            $linkedUser->email = $data['manager_email'];
-            if (! empty($data['manager_password'])) {
-                $linkedUser->password = bcrypt($data['manager_password']);
-            }
-            $linkedUser->save();
-        }
+        // Manager access is handled by updateManagerAccess() so an ordinary save
+        // can never create, alter or revoke someone's login.
 
         return back()->with('success', 'Employee updated successfully');
     }
@@ -329,6 +331,156 @@ class EmployeeController extends Controller
         $employee->delete(); // Soft delete — deleted_at is set; record is retained in DB
 
         return back()->with('success', 'Employee deleted successfully');
+    }
+
+    /**
+     * Compare a submitted rate against the stored one numerically.
+     *
+     * A strict !== comparison here would treat the form string "450" and the DB
+     * decimal string "450.00" as different, appending a bogus history row on every
+     * single save even when nothing changed.
+     */
+    private function rateValueChanged(mixed $new, mixed $old): bool
+    {
+        if ($new === null && $old === null) {
+            return false;
+        }
+
+        if ($new === null || $old === null) {
+            return true;
+        }
+
+        return abs((float) $new - (float) $old) > 0.00001;
+    }
+
+    /**
+     * Point each denormalized rate column at the most recent history entry for that
+     * type, so the column always agrees with latestRateOf()/rateAt().
+     */
+    private function syncDenormalizedRates(Employee $employee): void
+    {
+        $updates = [];
+
+        foreach (['daily_rate', 'hourly_rate', 'hours_per_day'] as $rateType) {
+            $latest = EmployeeRate::where('employee_id', $employee->id)
+                ->where('rate_type', $rateType)
+                ->orderByDesc('effective_from')
+                ->orderByDesc('id')
+                ->first();
+
+            if ($latest) {
+                $updates[$rateType] = $latest->amount;
+            }
+        }
+
+        if ($updates !== []) {
+            $employee->update($updates);
+        }
+    }
+
+    /**
+     * Activate or deactivate an employee from its own control, with a chosen
+     * effective date that drives the payroll cut-off.
+     */
+    public function updateStatus(Request $request, Employee $employee): RedirectResponse
+    {
+        $this->authorize('update', $employee);
+
+        $validated = $request->validate([
+            'is_active' => 'required|boolean',
+            // Future dates are rejected: access is revoked the moment this is saved,
+            // so pay must not be promised beyond that point.
+            'effective_from' => 'required|date|before_or_equal:today',
+        ], [
+            'effective_from.before_or_equal' => 'The effective date cannot be in the future.',
+        ]);
+
+        $isActive = (bool) $validated['is_active'];
+        $effectiveFrom = $validated['effective_from'];
+
+        if ($isActive === (bool) $employee->is_active) {
+            return back()->with('success', 'Employment status is already up to date.');
+        }
+
+        $employee->update([
+            'is_active' => $isActive,
+            'deactivated_at' => $isActive ? null : $effectiveFrom,
+        ]);
+
+        $employee->statusChanges()->create([
+            'is_active' => $isActive,
+            'effective_from' => $effectiveFrom,
+            'created_by' => auth()->id(),
+        ]);
+
+        return back()->with(
+            'success',
+            $isActive
+                ? 'Employee reactivated.'
+                : 'Employee deactivated with effect from '.Carbon::parse($effectiveFrom)->format('d M Y').'.'
+        );
+    }
+
+    /**
+     * Grant, update or revoke manager login access, together with the team the
+     * manager looks after. Handled here rather than in the employee form so a
+     * normal save can never touch someone's access.
+     */
+    public function updateManagerAccess(UpdateManagerAccessRequest $request, Employee $employee): RedirectResponse
+    {
+        $this->authorize('update', $employee);
+
+        $linkedUser = $employee->user()->first();
+
+        if ($request->boolean('revoke')) {
+            if ($linkedUser) {
+                // Pivot rows cascade with the user, releasing the team back to the pool.
+                $linkedUser->delete();
+            }
+
+            return back()->with('success', 'Manager access revoked.');
+        }
+
+        $data = $request->validated();
+
+        // Refuse employees already claimed by a different manager rather than
+        // silently stealing them. Checked BEFORE touching the account, otherwise a
+        // rejected request would still leave a freshly created login with no team.
+        $conflicts = Employee::whereIn('id', $data['employee_ids'])
+            ->whereHas('managers', fn ($q) => $q->when($linkedUser, fn ($inner) => $inner->where('users.id', '!=', $linkedUser->id)))
+            ->pluck('name');
+
+        if ($conflicts->isNotEmpty()) {
+            return back()->withErrors([
+                'employee_ids' => 'Already assigned to another manager: '.$conflicts->implode(', ').'.',
+            ])->withInput();
+        }
+
+        if ($linkedUser) {
+            $linkedUser->email = $data['email'];
+            if (! empty($data['password'])) {
+                $linkedUser->password = bcrypt($data['password']);
+            }
+            $linkedUser->role = 'manager';
+            $linkedUser->save();
+            $manager = $linkedUser;
+        } else {
+            $manager = User::create([
+                'name' => $employee->name,
+                'email' => $data['email'],
+                'password' => bcrypt($data['password']),
+                'role' => 'manager',
+                'employee_id' => $employee->id,
+            ]);
+        }
+
+        $manager->assignedEmployees()->sync(
+            collect($data['employee_ids'])
+                ->mapWithKeys(fn ($id) => [$id => ['assigned_by' => auth()->id(), 'assigned_at' => now()]])
+                ->all()
+        );
+
+        return back()->with('success', 'Manager access saved with '.count($data['employee_ids']).' assigned employee(s).');
     }
 
     public function destroyRate(Employee $employee, EmployeeRate $rate)

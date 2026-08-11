@@ -22,6 +22,40 @@ class AttendanceService
     /**
      * Save (upsert) attendance + payroll snapshot for a daily-rate employee.
      */
+    /** Weekday keys in ISO order, so the index is the offset from the week's Monday. */
+    private const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+    /**
+     * Zero out any day on or after the employee's deactivation date.
+     *
+     * Attendance itself still records what was marked — only the payable figures
+     * derived from it are trimmed.
+     *
+     * @param  array<string, mixed>  $primaryMap  days_map (daily) or hours_map (hourly)
+     * @param  array<string, mixed>  $extraMap  overtime_map (daily) or ot_map (hourly)
+     * @return array{0: array<string, mixed>, 1: array<string, mixed>}
+     */
+    private function applyDeactivationCutoff(
+        ?Employee $employee,
+        Carbon $weekStart,
+        array $primaryMap,
+        array $extraMap
+    ): array {
+        if (! $employee || ! $employee->deactivated_at) {
+            return [$primaryMap, $extraMap];
+        }
+
+        foreach (self::DAY_KEYS as $offset => $dayKey) {
+            if ($employee->isPaidOn($weekStart->copy()->addDays($offset))) {
+                continue;
+            }
+            $primaryMap[$dayKey] = 0;
+            $extraMap[$dayKey] = 0;
+        }
+
+        return [$primaryMap, $extraMap];
+    }
+
     public function saveDailyEmployee(
         int $employeeId,
         array $row,
@@ -56,8 +90,16 @@ class AttendanceService
             ? ($employee->rateAt($weekStart, 'daily_rate') ?? $employee->daily_rate)
             : 0;
 
-        $weeklyAmount = (float) $presentDays * (float) $appliedDaily;
-        $addons = $this->buildDailyAddons($overtimeNormalized, $weekStart);
+        // The attendance record above keeps every marked day; pay is limited to the
+        // days before any deactivation date.
+        [$payableDaysMap, $payableOvertimeMap] = $this->applyDeactivationCutoff(
+            $employee, $weekStart, $daysFull, $overtimeNormalized
+        );
+        $payableDays = array_sum($payableDaysMap);
+        $payableOvertime = array_sum(array_map('floatval', $payableOvertimeMap));
+
+        $weeklyAmount = (float) $payableDays * (float) $appliedDaily;
+        $addons = $this->buildDailyAddons($payableOvertimeMap, $weekStart);
         $addonsTotal = array_sum(array_map(fn ($a) => (float) ($a['amount'] ?? 0), $addons));
         $gross = $weeklyAmount + $addonsTotal;
         $bankAmountFix = (float) ($employee?->bank_transfer_fix_amount ?? 0);
@@ -78,7 +120,7 @@ class AttendanceService
                 'employee_id' => $employeeId,
                 'type' => 'daily_rate',
                 'total_days' => 6,
-                'present_days' => $presentDays,
+                'present_days' => $payableDays,
                 'total_hours' => null,
                 'gross_amount' => $gross,
                 'cash_amount' => 0,
@@ -87,7 +129,7 @@ class AttendanceService
                 'addons' => $addons,
                 'applied_daily_rate' => $appliedDaily,
                 'note' => null,
-                'overtime_amount' => $otTotal,
+                'overtime_amount' => $payableOvertime,
                 'overtime_hours' => null,
                 'advance_given' => $advanceGiven,
                 'advance_recovered' => 0,
@@ -134,8 +176,16 @@ class AttendanceService
             ? ($employee->rateAt($weekStart, 'hourly_rate') ?? $employee->hourly_rate)
             : 0;
 
-        $weeklyAmount = (float) $regularHours * (float) $appliedHourly;
-        $addons = $this->buildHourlyAddons($otNormalized, $appliedHourly, $weekStart);
+        // The attendance record above keeps every logged hour; pay is limited to the
+        // hours before any deactivation date.
+        [$payableHoursMap, $payableOtMap] = $this->applyDeactivationCutoff(
+            $employee, $weekStart, $hoursNormalized, $otNormalized
+        );
+        $payableOtTotal = array_sum(array_map('floatval', $payableOtMap));
+        $payableRegularHours = max(0, array_sum(array_map('floatval', $payableHoursMap)) - $payableOtTotal);
+
+        $weeklyAmount = (float) $payableRegularHours * (float) $appliedHourly;
+        $addons = $this->buildHourlyAddons($payableOtMap, $appliedHourly, $weekStart);
         $addonsTotal = array_sum(array_map(fn ($a) => (float) ($a['amount'] ?? 0), $addons));
         $gross = $weeklyAmount + $addonsTotal;
         $bankAmountFix = (float) ($employee?->bank_transfer_fix_amount ?? 0);
@@ -156,7 +206,7 @@ class AttendanceService
                 'type' => 'hourly',
                 'total_days' => null,
                 'present_days' => null,
-                'total_hours' => $regularHours,
+                'total_hours' => $payableRegularHours,
                 'gross_amount' => $gross,
                 'cash_amount' => 0,
                 'bank_amount' => $bankAmountFix,
@@ -164,7 +214,7 @@ class AttendanceService
                 'addons' => $addons,
                 'applied_hourly_rate' => $appliedHourly,
                 'applied_hours_per_day' => $employee?->hours_per_day ?? null,
-                'overtime_hours' => $otTotal,
+                'overtime_hours' => $payableOtTotal,
                 'overtime_amount' => null,
                 'advance_given' => $advanceGiven,
                 'advance_recovered' => 0,

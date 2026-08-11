@@ -30,36 +30,44 @@
                         @endif
                     </td>
                     <td class="px-4 py-3 text-sm text-slate-700">
+                        {{-- Rates in effect today; a future-dated entry is flagged as scheduled.
+                             The controller eager-loads 'rates', so these resolve in memory. --}}
                         @if ($employee->type === 'daily_rate')
-                            @php $latestDaily = $employee->latestRateOf('daily_rate'); @endphp
-                            <div class="flex items-center gap-1.5">
-                                <span class="font-mono font-medium">€{{ number_format($latestDaily, 2) }}</span>
-                                <span class="text-slate-400 text-xs">/ day</span>
-                                @if ($latestDaily != (float) $employee->daily_rate)
-                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
-                                          title="Rate was updated from €{{ number_format($employee->daily_rate, 2) }}">
-                                        updated
-                                    </span>
-                                @endif
-                            </div>
-                        @else
                             @php
-                                $latestHourly  = $employee->latestRateOf('hourly_rate');
-                                $latestHpd     = $employee->latestRateOf('hours_per_day');
+                                $currentDaily = $employee->currentRateOf('daily_rate');
+                                $upcomingDaily = $employee->upcomingRateEntryOf('daily_rate');
                             @endphp
                             <div class="flex items-center gap-1.5">
-                                <span class="font-mono font-medium">€{{ number_format($latestHourly, 2) }}</span>
-                                <span class="text-slate-400 text-xs">/ hr</span>
-                                @if ($latestHourly != (float) $employee->hourly_rate)
-                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
-                                          title="Rate was updated from €{{ number_format($employee->hourly_rate, 2) }}">
-                                        updated
-                                    </span>
-                                @endif
+                                <span class="font-mono font-medium">€{{ number_format($currentDaily, 2) }}</span>
+                                <span class="text-slate-400 text-xs">/ day</span>
                             </div>
-                            @if ($latestHpd)
+                            @if ($upcomingDaily)
+                                <div class="text-[11px] text-sky-700 mt-0.5"
+                                     title="Scheduled rate change">
+                                    → €{{ number_format($upcomingDaily->amount, 2) }}
+                                    on {{ \Carbon\Carbon::parse($upcomingDaily->effective_from)->format('d M Y') }}
+                                </div>
+                            @endif
+                        @else
+                            @php
+                                $currentHourly = $employee->currentRateOf('hourly_rate');
+                                $currentHpd = $employee->currentRateOf('hours_per_day');
+                                $upcomingHourly = $employee->upcomingRateEntryOf('hourly_rate');
+                            @endphp
+                            <div class="flex items-center gap-1.5">
+                                <span class="font-mono font-medium">€{{ number_format($currentHourly, 2) }}</span>
+                                <span class="text-slate-400 text-xs">/ hr</span>
+                            </div>
+                            @if ($upcomingHourly)
+                                <div class="text-[11px] text-sky-700 mt-0.5"
+                                     title="Scheduled rate change">
+                                    → €{{ number_format($upcomingHourly->amount, 2) }}
+                                    on {{ \Carbon\Carbon::parse($upcomingHourly->effective_from)->format('d M Y') }}
+                                </div>
+                            @endif
+                            @if ($currentHpd)
                                 <div class="text-xs text-slate-400 mt-0.5">
-                                    {{ rtrim(rtrim(number_format($latestHpd, 2), '0'), '.') }} hrs/day
+                                    {{ rtrim(rtrim(number_format($currentHpd, 2), '0'), '.') }} hrs/day
                                 </div>
                             @endif
                         @endif

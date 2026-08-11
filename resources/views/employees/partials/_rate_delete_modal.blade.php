@@ -37,6 +37,15 @@
                     This action cannot be undone from this screen.
                 </div>
             </div>
+
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">
+                    Type <span class="font-semibold text-slate-800">Permanently delete</span> to confirm
+                </label>
+                <input type="text" x-model="deleteConfirmText" autocomplete="off"
+                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-rose-500/60 focus:border-rose-500 outline-none"
+                    placeholder="Permanently delete">
+            </div>
         </div>
 
         <div class="flex items-center justify-end gap-2 px-5 py-4 bg-slate-50 border-t border-slate-100">
@@ -47,8 +56,9 @@
             <form :action="deleteTarget ? '{{ url('employees/'.$employee->id.'/rates') }}/' + deleteTarget.id : '#'" method="POST">
                 @csrf
                 @method('DELETE')
-                <button type="submit"
-                    class="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition">
+                <button type="submit" :disabled="deleteConfirmText !== 'Permanently delete'"
+                    class="px-4 py-2 rounded-lg text-white text-sm font-medium transition"
+                    :class="deleteConfirmText === 'Permanently delete' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-rose-300 cursor-not-allowed'">
                     Yes, Delete
                 </button>
             </form>

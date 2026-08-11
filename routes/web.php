@@ -52,6 +52,10 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
     Route::resource('employees', EmployeeController::class)->except(['show']);
     // Delete a single rate history entry (soft delete)
     Route::delete('employees/{employee}/rates/{rate}', [EmployeeController::class, 'destroyRate'])->name('employees.rates.destroy');
+    // Activate / deactivate with a chosen effective date
+    Route::put('employees/{employee}/status', [EmployeeController::class, 'updateStatus'])->name('employees.status.update');
+    // Manager login access + the team they look after
+    Route::put('employees/{employee}/manager-access', [EmployeeController::class, 'updateManagerAccess'])->name('employees.manager-access.update');
 
     // MISSING-01: User Management
     Route::resource('users', UsersController::class)->except(['show']);

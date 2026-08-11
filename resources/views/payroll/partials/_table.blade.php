@@ -31,7 +31,17 @@
                     @php $emp = $row['employee']; @endphp
                     <tr class="hover:bg-slate-50/80">
                         <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ $emp->employee_code }}</td>
-                        <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ $emp->name }}</td>
+                        <td class="px-4 py-3 text-sm font-medium text-slate-800">
+                            {{ $emp->name }}
+                            @unless ($emp->is_active)
+                                {{-- Deactivated mid-period: kept here so already-recorded
+                                     attendance still gets paid, but flagged so it is obvious. --}}
+                                <span class="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 align-middle"
+                                    title="This employee is deactivated. They appear here because attendance was already recorded for this week.">
+                                    <span class="w-1 h-1 rounded-full bg-rose-400"></span>Inactive
+                                </span>
+                            @endunless
+                        </td>
                         <td class="px-4 py-3 text-center text-xs">
                             @if ($row['type'] === 'daily_rate')
                                 <span class="inline-flex px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Daily</span>

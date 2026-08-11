@@ -368,6 +368,18 @@ class PayrollController extends Controller
             ->get()
             ->keyBy('employee_id');
 
+        $dailyLockedWeek = $dailyAttendance->contains(fn ($att) => $att->locked);
+        $hourlyLockedWeek = $hourlyAttendance->contains(fn ($att) => $att->locked);
+
+        // Source cash/bank/weekly/arrears from the same computed rows the web page
+        // displays — reading $item->cash_amount directly would show 0 for any week
+        // whose attendance was saved but never explicitly finalized via "Save Weekly
+        // Payroll" (AttendanceService always persists cash_amount=0 as a placeholder).
+        $service = app(PayrollService::class);
+        $rawRows = $service->buildRowsFromAttendance($year, $week);
+        $rows = $service->mergeWithPayrollRun($rawRows, $run, $dailyLockedWeek, $hourlyLockedWeek);
+        $rowsByEmployee = $rows->keyBy(fn (array $r) => $r['employee']->id);
+
         $dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
         $spreadsheet = new Spreadsheet;
@@ -375,11 +387,11 @@ class PayrollController extends Controller
 
         // WEEK title row
         $sheet->setCellValue('A1', 'WEEK '.$week.' - '.$year);
-        $sheet->mergeCells('A1:P1');
+        $sheet->mergeCells('A1:Q1');
         $sheet->getRowDimension(1)->setRowHeight(22);
 
         // background of title row (light slate)
-        $sheet->getStyle('A1:P1')->getFill()
+        $sheet->getStyle('A1:Q1')->getFill()
             ->setFillType(Fill::FILL_SOLID)
             ->getStartColor()->setARGB('FF14213D'); // E2E8F0 with FF prefix
 
@@ -445,6 +457,7 @@ class PayrollController extends Controller
             'N3' => 'Weekly Total',
             'O3' => 'Cash',
             'P3' => 'Bank',
+            'Q3' => 'Arrears',
         ];
 
         // write header labels
@@ -459,7 +472,7 @@ class PayrollController extends Controller
         }
 
         // center alignment for merged headers
-        $sheet->getStyle('A3:P4')->getAlignment()
+        $sheet->getStyle('A3:Q4')->getAlignment()
             ->setHorizontal('center')
             ->setVertical('center');
 
@@ -475,14 +488,14 @@ class PayrollController extends Controller
             ->getStartColor()->setARGB('E5E7EB');
         $sheet->getStyle('D3:J3')->getFont()->getColor()->setARGB('000000');
 
-        // Rest headings (K3:P3) dark green background, white text
-        $sheet->getStyle('K3:P3')->getFill()
+        // Rest headings (K3:Q3) dark green background, white text
+        $sheet->getStyle('K3:Q3')->getFill()
             ->setFillType(Fill::FILL_SOLID)
             ->getStartColor()->setARGB('065F46');
-        $sheet->getStyle('K3:P3')->getFont()->getColor()->setARGB(Color::COLOR_WHITE);
+        $sheet->getStyle('K3:Q3')->getFont()->getColor()->setARGB(Color::COLOR_WHITE);
 
         // center headings text
-        $sheet->getStyle('A3:P3')->getAlignment()
+        $sheet->getStyle('A3:Q3')->getAlignment()
             ->setHorizontal('center')
             ->setVertical('center');
 
@@ -494,6 +507,8 @@ class PayrollController extends Controller
             if (! $emp) {
                 continue;
             }
+
+            $row = $rowsByEmployee->get($emp->id);
 
             // default days map: Mon to Sat present, Sun off
             $daysMap = [
@@ -529,10 +544,10 @@ class PayrollController extends Controller
             $sheet->setCellValue("C{$rowIndex}", $item->type === 'daily_rate' ? 'Daily' : 'Hourly');
 
             // row default style
-            $sheet->getStyle("A{$rowIndex}:P{$rowIndex}")->getFill()
+            $sheet->getStyle("A{$rowIndex}:Q{$rowIndex}")->getFill()
                 ->setFillType(Fill::FILL_SOLID)
                 ->getStartColor()->setARGB('FFFFFF');
-            $sheet->getStyle("A{$rowIndex}:P{$rowIndex}")->getFont()
+            $sheet->getStyle("A{$rowIndex}:Q{$rowIndex}")->getFont()
                 ->getColor()->setARGB(Color::COLOR_BLACK);
 
             // day wise values with IN / OFF / CLOSED and special colors
@@ -622,15 +637,28 @@ class PayrollController extends Controller
                 $col++;
             }
 
-            // attendance + payment columns
+            // attendance + payment columns — sourced from the PayrollService-computed
+            // $row (matches what the web page displays), not the raw $item, since
+            // $item->cash_amount/bank_amount can still hold AttendanceService's
+            // placeholder values (0 / bank_transfer_fix_amount) for a week that was
+            // never explicitly finalized via "Save Weekly Payroll".
             $val = fn ($v) => ($v === null || $v === '') ? '-' : $v;
 
-            $sheet->setCellValue("K{$rowIndex}", $val($item->present_days));
+            $presentDays = $row['present_days'] ?? $item->present_days;
+            $totalHours = $row['total_hours'] ?? $item->total_hours;
+            $overtimeAmount = $row['overtime_amount'] ?? $item->overtime_amount;
+            $overtimeHours = $row['overtime_hours'] ?? $item->overtime_hours;
+            $weeklyAmount = $row['weekly_amount'] ?? $item->weekly_amount;
+            $cashAmount = $row['cash_amount'] ?? $item->cash_amount;
+            $bankAmount = $row['bank_amount'] ?? $item->bank_amount;
+            $arrears = $row['arrears'] ?? 0;
+
+            $sheet->setCellValue("K{$rowIndex}", $val($presentDays));
 
             // Total hours column (L): for hourly show "normal [+ OT]" string, for daily keep dash
             if ($item->type === 'hourly') {
-                $normal = $item->total_hours ?? 0;
-                $ot = $item->overtime_hours ?? 0;
+                $normal = $totalHours ?? 0;
+                $ot = $overtimeHours ?? 0;
                 if ($ot && $ot > 0) {
                     $hoursLabel = $normal.' + '.$ot.' hr';
                 } else {
@@ -643,17 +671,19 @@ class PayrollController extends Controller
 
             // Overtime column (M): daily uses overtime_amount (currency/amount), hourly uses overtime_hours
             if ($item->type === 'daily_rate') {
-                $sheet->setCellValue("M{$rowIndex}", $val(number_format((float) ($item->overtime_amount ?? 0), 2)));
+                $sheet->setCellValue("M{$rowIndex}", $val(number_format((float) ($overtimeAmount ?? 0), 2)));
             } else {
-                $sheet->setCellValue("M{$rowIndex}", $val($item->overtime_hours) * $item->employee->hourly_rate);
+                $rate = $row['rate'] ?? $emp->hourly_rate ?? 0;
+                $sheet->setCellValue("M{$rowIndex}", $val(number_format((float) ($overtimeHours ?? 0) * $rate, 2)));
             }
 
-            $sheet->setCellValue("N{$rowIndex}", $val($item->weekly_amount));
-            $sheet->setCellValue("O{$rowIndex}", $val($item->cash_amount));
-            $sheet->setCellValue("P{$rowIndex}", $val($item->bank_amount));
+            $sheet->setCellValue("N{$rowIndex}", $val($weeklyAmount));
+            $sheet->setCellValue("O{$rowIndex}", $val($cashAmount));
+            $sheet->setCellValue("P{$rowIndex}", $val($bankAmount));
+            $sheet->setCellValue("Q{$rowIndex}", $val(number_format((float) $arrears, 2)));
 
             // center align
-            $sheet->getStyle("K{$rowIndex}:P{$rowIndex}")
+            $sheet->getStyle("K{$rowIndex}:Q{$rowIndex}")
                 ->getAlignment()
                 ->setHorizontal('center')
                 ->setVertical('center');
@@ -662,13 +692,13 @@ class PayrollController extends Controller
         }
 
         // auto width
-        foreach (range('A', 'P') as $col) {
+        foreach (range('A', 'Q') as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
 
         // thin borders around everything used
         $lastRow = $rowIndex - 1;
-        $sheet->getStyle("A1:P{$lastRow}")
+        $sheet->getStyle("A1:Q{$lastRow}")
             ->getBorders()
             ->getAllBorders()
             ->setBorderStyle(Border::BORDER_THIN);

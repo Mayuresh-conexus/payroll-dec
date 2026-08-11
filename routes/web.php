@@ -50,8 +50,8 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
 
     // Employees CRUD
     Route::resource('employees', EmployeeController::class)->except(['show']);
-    // Employee rate history (AJAX)
-    Route::get('employees/{employee}/rates', [EmployeeController::class, 'rates'])->name('employees.rates');
+    // Delete a single rate history entry (soft delete)
+    Route::delete('employees/{employee}/rates/{rate}', [EmployeeController::class, 'destroyRate'])->name('employees.rates.destroy');
 
     // MISSING-01: User Management
     Route::resource('users', UsersController::class)->except(['show']);

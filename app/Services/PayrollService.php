@@ -55,6 +55,7 @@ class PayrollService
             $rows->push([
                 'employee' => $employee,
                 'type' => 'daily_rate',
+                'rate' => (float) $dailyRate,
                 'total_days' => $totalDays,
                 'present_days' => $presentDays,
                 'sun_present' => $sunPresent,
@@ -84,6 +85,7 @@ class PayrollService
             $rows->push([
                 'employee' => $employee,
                 'type' => 'hourly',
+                'rate' => (float) $rate,
                 'total_days' => null,
                 'present_days' => null,
                 'sun_present' => $sunHours > 0,
@@ -214,12 +216,32 @@ class PayrollService
 
                 if ($trusted) {
                     $gross = max(0, (float) ($item->gross_amount ?? 0));
-                    $cash = $this->clampCash((float) ($item->cash_amount ?? 0), $gross);
-                    $bankAmount = ($cash > 0) ? ($gross - $cash) : min($empBankFix, $gross);
+                    $itemCash = (float) ($item->cash_amount ?? 0);
+                    $itemBank = (float) ($item->bank_amount ?? 0);
+                    $isSaved = $itemCash > 0 || abs($itemBank - $empBankFix) > 0.005;
+                    $weeklyAmount = (float) ($item->weekly_amount ?? $gross);
+
+                    if ($isSaved) {
+                        $cash = $this->clampCash($itemCash, $gross);
+                        $bankAmount = ($cash > 0) ? ($gross - $cash) : min($empBankFix, $gross);
+                    } else {
+                        // Attendance was saved/recalculated but payroll was never explicitly
+                        // saved via "Save Weekly Payroll" — mirror the same preview split the
+                        // web page computes client-side, so exports/reports match the screen.
+                        $cash = max(0, $weeklyAmount - $empBankFix);
+                        $bankAmount = min($empBankFix, $gross);
+                    }
+
+                    [$recover, $arrears] = $this->computeAdvance($prevAdvanceBalance, $weeklyAmount, $bankAmount, $cash, $isSaved);
+
+                    $rate = (float) ($isDaily
+                        ? ($item->applied_daily_rate ?? $rowsByKey[$key]['rate'] ?? $employee->daily_rate ?? 0)
+                        : ($item->applied_hourly_rate ?? $rowsByKey[$key]['rate'] ?? $employee->hourly_rate ?? 0));
 
                     $rowsByKey[$key] = [
                         'employee' => $employee,
                         'type' => $item->type,
+                        'rate' => $rate,
                         'total_days' => $item->total_days,
                         'present_days' => $item->present_days,
                         'total_hours' => $item->total_hours,
@@ -229,34 +251,68 @@ class PayrollService
                         'cash_amount' => $cash,
                         'bank_amount' => $bankAmount,
                         'bank_transfer_fix_amount' => $empBankFix,
-                        'weekly_amount' => $item->weekly_amount ?? $gross,
+                        'weekly_amount' => $weeklyAmount,
                         'addons' => $addons,
                         'prev_advance_balance' => $prevAdvanceBalance,
                         'advance_balance' => (float) ($item->advance_balance ?? 0),
+                        'recover' => $recover,
+                        'arrears' => $arrears,
                     ];
                 } elseif ($rowsByKey->has($key)) {
                     $row = $rowsByKey->get($key);
                     $gross = (float) ($row['gross_amount'] ?? 0);
-                    $cash = $this->clampCash((float) ($item->cash_amount ?? 0), $gross);
-                    $bankAmount = (float) ($item->bank_amount ?? 0);
+                    $itemCash = (float) ($item->cash_amount ?? 0);
+                    $itemBank = (float) ($item->bank_amount ?? 0);
+                    $isSaved = $itemCash > 0 || abs($itemBank - $empBankFix) > 0.005;
+                    $weeklyAmount = (float) ($item->weekly_amount ?? $gross);
+
+                    if ($isSaved) {
+                        $cash = $this->clampCash($itemCash, $gross);
+                        $bankAmount = $itemBank;
+                    } else {
+                        $cash = max(0, $weeklyAmount - $empBankFix);
+                        $bankAmount = $empBankFix;
+                    }
+
+                    [$recover, $arrears] = $this->computeAdvance($prevAdvanceBalance, $weeklyAmount, $bankAmount, $cash, $isSaved);
 
                     $row['cash_amount'] = $cash;
                     $row['bank_amount'] = ($cash > 0) ? $bankAmount : $empBankFix;
                     $row['bank_transfer_fix_amount'] = $empBankFix;
-                    $row['weekly_amount'] = $item->weekly_amount ?? ($row['gross_amount'] ?? 0);
+                    $row['weekly_amount'] = $weeklyAmount;
                     $row['addons'] = $addons;
                     $row['prev_advance_balance'] = $prevAdvanceBalance;
                     $row['advance_balance'] = (float) ($item->advance_balance ?? 0);
+                    $row['recover'] = $recover;
+                    $row['arrears'] = $arrears;
 
                     $rowsByKey[$key] = $row;
                 } else {
                     // Payroll row exists but attendance row is missing
                     $gross = max(0, (float) ($item->gross_amount ?? 0));
-                    $cash = $this->clampCash((float) ($item->cash_amount ?? 0), $gross);
+                    $itemCash = (float) ($item->cash_amount ?? 0);
+                    $itemBank = (float) ($item->bank_amount ?? 0);
+                    $isSaved = $itemCash > 0 || abs($itemBank - $empBankFix) > 0.005;
+                    $weeklyAmount = (float) ($item->weekly_amount ?? $gross);
+
+                    if ($isSaved) {
+                        $cash = $this->clampCash($itemCash, $gross);
+                        $bankAmount = $gross - $cash;
+                    } else {
+                        $cash = max(0, $weeklyAmount - $empBankFix);
+                        $bankAmount = $empBankFix;
+                    }
+
+                    [$recover, $arrears] = $this->computeAdvance($prevAdvanceBalance, $weeklyAmount, $bankAmount, $cash, $isSaved);
+
+                    $rate = (float) ($isDaily
+                        ? ($item->applied_daily_rate ?? $employee->daily_rate ?? 0)
+                        : ($item->applied_hourly_rate ?? $employee->hourly_rate ?? 0));
 
                     $rowsByKey[$key] = [
                         'employee' => $employee,
                         'type' => $item->type,
+                        'rate' => $rate,
                         'total_days' => $item->total_days,
                         'present_days' => $item->present_days,
                         'total_hours' => $item->total_hours,
@@ -264,35 +320,77 @@ class PayrollService
                         'sun_hours' => 0,
                         'gross_amount' => $gross,
                         'cash_amount' => $cash,
-                        'bank_amount' => $gross - $cash,
+                        'bank_amount' => $bankAmount,
                         'bank_transfer_fix_amount' => $empBankFix,
-                        'weekly_amount' => $item->weekly_amount ?? $gross,
+                        'weekly_amount' => $weeklyAmount,
                         'addons' => $addons,
                         'prev_advance_balance' => $prevAdvanceBalance,
                         'advance_balance' => (float) ($item->advance_balance ?? 0),
+                        'recover' => $recover,
+                        'arrears' => $arrears,
                     ];
                 }
             }
         } else {
-            // No payroll run yet — ensure defaults
+            // No payroll run yet — attendance-only rows always start unsaved
             $rowsByKey = $rowsByKey->map(function (array $row) {
                 $gross = (float) ($row['gross_amount'] ?? 0);
-                $cash = $this->clampCash((float) ($row['cash_amount'] ?? 0), $gross);
                 $bankFix = (float) ($row['bank_amount'] ?? 0); // pre-set to bank_transfer_fix_amount
+                $weeklyAmount = (float) ($row['weekly_amount'] ?? $gross);
+                $cash = max(0, $weeklyAmount - $bankFix);
+                $bankAmount = min($bankFix, $gross);
 
                 $row['cash_amount'] = $cash;
-                $row['bank_amount'] = ($cash > 0) ? ($gross - $cash) : min($bankFix, $gross);
+                $row['bank_amount'] = $bankAmount;
                 $row['bank_transfer_fix_amount'] ??= $bankFix;
-                $row['weekly_amount'] ??= $gross;
+                $row['weekly_amount'] = $weeklyAmount;
                 $row['addons'] ??= [];
                 $row['prev_advance_balance'] ??= 0.0;
                 $row['advance_balance'] ??= 0.0;
+
+                [$recover, $arrears] = $this->computeAdvance(
+                    (float) $row['prev_advance_balance'],
+                    $weeklyAmount,
+                    $bankAmount,
+                    $cash,
+                    false
+                );
+                $row['recover'] = $recover;
+                $row['arrears'] = $arrears;
 
                 return $row;
             });
         }
 
-        return $rowsByKey->values();
+        // Attendance tables have no natural row order (daily-rate rows are queried
+        // before hourly ones, and within each group rows come back in whatever order
+        // the DB happens to return them — not employee_code). Sort explicitly so the
+        // payroll table always lists employees in a stable, predictable order.
+        return $rowsByKey->values()->sortBy(
+            fn (array $row) => $row['employee']?->employee_code ?? '',
+            SORT_NATURAL | SORT_FLAG_CASE
+        )->values();
+    }
+
+    /**
+     * Replicates the web page's client-side (payroll.js) advance/arrears preview
+     * so exports and other server-side consumers show the same figures as the screen,
+     * even for a week whose payroll amounts were never explicitly saved.
+     *
+     * @return array{0: float, 1: float} [$recover, $arrears]
+     */
+    private function computeAdvance(float $prevBalance, float $weeklyAmount, float $bankAmount, float $cashAmount, bool $isSaved): array
+    {
+        $recover = 0.0;
+        if ($isSaved) {
+            $normalCash = max(0, $weeklyAmount - $bankAmount);
+            $recover = max(0, round(($normalCash - $cashAmount) * 100) / 100);
+        }
+
+        $given = max(0, $bankAmount - $weeklyAmount);
+        $arrears = max(0, round(($prevBalance + $given - $recover) * 100) / 100);
+
+        return [$recover, $arrears];
     }
 
     /**

@@ -285,6 +285,79 @@ class PayrollWeekTest extends TestCase
         }
     }
 
+    // ── Export ────────────────────────────────────────────────────────────────
+
+    public function test_export_shows_correct_cash_and_bank_when_payroll_never_explicitly_saved(): void
+    {
+        // Regression guard: AttendanceService always persists cash_amount=0 /
+        // bank_amount=bank_transfer_fix_amount as a placeholder when attendance is
+        // saved. The web page shows a client-computed preview (weekly - bank_fix)
+        // for this "not yet saved" state, but the export used to read the raw 0
+        // straight from the DB. The export must show the same figures as the screen.
+        $admin = $this->admin();
+        $this->actingAs($admin);
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate',
+            'daily_rate' => 200,
+            'bank_transfer_fix_amount' => 100,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0],
+        ], 2026, 10, false);
+
+        $this->assertDatabaseHas('payroll_items', [
+            'employee_id' => $emp->id,
+            'cash_amount' => 0,
+            'bank_amount' => 100,
+        ]);
+
+        $response = $this->get('/payroll/export-week?year=2026&week=10');
+        $response->assertOk();
+
+        $tmp = tempnam(sys_get_temp_dir(), 'payroll_export_test').'.xlsx';
+        file_put_contents($tmp, $response->streamedContent());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
+        unlink($tmp);
+
+        // 6 present days * 200 = 1200 gross/weekly; cash = 1200 - bank_fix(100) = 1100
+        $this->assertEquals(1100, (float) $sheet->getCell('O5')->getValue());
+        $this->assertEquals(100, (float) $sheet->getCell('P5')->getValue());
+    }
+
+    public function test_export_includes_arrears_column(): void
+    {
+        $admin = $this->admin();
+        $this->actingAs($admin);
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 100]);
+
+        // Attendance is always saved before payroll in real usage — save it first so
+        // this exercises the common merge path, not the rare "attendance missing" one.
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 0, 'sat' => 0, 'sun' => 0],
+        ], 2026, 12, false);
+
+        $this->post('/payroll/save-week', [
+            'year' => 2026, 'week' => 12,
+            'items' => [[
+                'employee_id' => $emp->id, 'type' => 'daily_rate',
+                'weekly_amount' => 400, 'cash' => 0, 'bank' => 700,
+                'prev_advance_balance' => 0,
+            ]],
+        ]);
+
+        $response = $this->get('/payroll/export-week?year=2026&week=12');
+        $response->assertOk();
+
+        $tmp = tempnam(sys_get_temp_dir(), 'payroll_export_test').'.xlsx';
+        file_put_contents($tmp, $response->streamedContent());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
+        unlink($tmp);
+
+        $this->assertEquals('Arrears', $sheet->getCell('Q3')->getValue());
+        $this->assertEquals(300, (float) $sheet->getCell('Q5')->getValue());
+    }
+
     // ── Monthly settlement clears weekly carry-forward ────────────────────────
 
     public function test_monthly_settlement_clears_weekly_carry_forward(): void

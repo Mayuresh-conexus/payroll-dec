@@ -12,6 +12,7 @@
                     <th class="px-4 py-3 text-left">Code</th>
                     <th class="px-4 py-3 text-left">Name</th>
                     <th class="px-4 py-3 text-center">Type</th>
+                    <th class="px-4 py-3 text-right">Rate</th>
                     <th class="px-4 py-3 text-center">Attendance</th>
                     <th class="px-4 py-3 text-right">Weekly Total</th>
                     <th class="px-4 py-3 text-right">Weekly Cash</th>
@@ -37,6 +38,10 @@
                             @else
                                 <span class="inline-flex px-2 py-1 rounded-full bg-brand-50 text-brand-700">Hourly</span>
                             @endif
+                        </td>
+                        <td class="px-4 py-3 text-right text-xs text-slate-600 font-mono"
+                            title="Rate effective for this payroll week, from rate history">
+                            €{{ number_format($row['rate'] ?? 0, 2) }}{{ $row['type'] === 'daily_rate' ? '/day' : '/hr' }}
                         </td>
                         <td class="px-4 py-3 text-center text-xs text-slate-600">
                             @if ($row['type'] === 'daily_rate')
@@ -182,7 +187,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="9" class="px-4 py-6 text-center text-sm text-slate-500">
+                        <td colspan="10" class="px-4 py-6 text-center text-sm text-slate-500">
                             No attendance found for this week. Please fill attendance first.
                         </td>
                     </tr>
@@ -192,7 +197,7 @@
             @if ($rows->count())
                 <tfoot class="bg-slate-50 text-sm">
                     <tr>
-                        <td colspan="4" class="px-4 py-3 text-right font-semibold text-slate-700">Totals</td>
+                        <td colspan="5" class="px-4 py-3 text-right font-semibold text-slate-700">Totals</td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.weeklyAmount)"></span></td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.cash)"></span></td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.bank)"></span></td>

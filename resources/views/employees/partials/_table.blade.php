@@ -91,8 +91,7 @@
                             </a>
 
                             {{-- Edit --}}
-                            <button type="button"
-                                @click='openEdit = true; editingEmployee = @json($employee); if (editingEmployee && editingEmployee.joining_date) { editingEmployee.joining_date = editingEmployee.joining_date.split("T")[0]; } fetchRates(editingEmployee.id)'
+                            <a href="{{ route('employees.edit', $employee) }}"
                                 data-tooltip="Edit"
                                 class="p-1.5 rounded-md hover:bg-brand-50 hover:text-brand-600 transition">
                                 <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none"
@@ -100,7 +99,7 @@
                                     <path stroke-linecap="round" stroke-linejoin="round"
                                         d="M16.862 3.487a1.5 1.5 0 0 1 2.121 0l1.53 1.53a1.5 1.5 0 0 1 0 2.122l-10.01 10.01-4.243.707.707-4.243 10-10.126Z" />
                                 </svg>
-                            </button>
+                            </a>
 
                             {{-- Delete --}}
                             <form action="{{ route('employees.destroy', $employee->id) }}" method="POST"

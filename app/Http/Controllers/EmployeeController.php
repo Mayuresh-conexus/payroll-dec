@@ -7,6 +7,7 @@ use App\Http\Requests\UpdateEmployeeRequest;
 use App\Models\AuditLog;
 use App\Models\DailyRateAttendance;
 use App\Models\Employee;
+use App\Models\EmployeeRate;
 use App\Models\HourlyAttendance;
 use App\Models\PayrollItem;
 use App\Models\User;
@@ -148,6 +149,30 @@ class EmployeeController extends Controller
         });
     }
 
+    public function edit(Employee $employee): View
+    {
+        $this->authorize('update', $employee);
+
+        $rateHistory = $employee->rates()
+            ->orderByDesc('effective_from')
+            ->orderByDesc('id')
+            ->get();
+
+        $ratesByType = $rateHistory->groupBy('rate_type');
+
+        $creators = User::whereIn('id', $rateHistory->pluck('created_by')->filter()->unique())
+            ->pluck('name', 'id');
+
+        $rateTypeTabs = $employee->type === 'daily_rate'
+            ? [['key' => 'daily_rate', 'label' => 'Daily Rate']]
+            : [
+                ['key' => 'hourly_rate', 'label' => 'Hourly Rate'],
+                ['key' => 'hours_per_day', 'label' => 'Hours / Day'],
+            ];
+
+        return view('employees.edit', compact('employee', 'ratesByType', 'creators', 'rateTypeTabs'));
+    }
+
     public function store(StoreEmployeeRequest $request)
     {
         $data = $request->validated();
@@ -158,7 +183,7 @@ class EmployeeController extends Controller
         // create initial employee_rates if provided
         $effectiveFrom = $request->input('rate_effective_from', now()->toDateString());
         if (isset($data['daily_rate']) && $data['daily_rate'] !== null) {
-            \App\Models\EmployeeRate::create([
+            EmployeeRate::create([
                 'employee_id' => $employee->id,
                 'rate_type' => 'daily_rate',
                 'amount' => $data['daily_rate'],
@@ -167,7 +192,7 @@ class EmployeeController extends Controller
             ]);
         }
         if (isset($data['hourly_rate']) && $data['hourly_rate'] !== null) {
-            \App\Models\EmployeeRate::create([
+            EmployeeRate::create([
                 'employee_id' => $employee->id,
                 'rate_type' => 'hourly_rate',
                 'amount' => $data['hourly_rate'],
@@ -176,7 +201,7 @@ class EmployeeController extends Controller
             ]);
         }
         if (isset($data['hours_per_day']) && $data['hours_per_day'] !== null) {
-            \App\Models\EmployeeRate::create([
+            EmployeeRate::create([
                 'employee_id' => $employee->id,
                 'rate_type' => 'hours_per_day',
                 'amount' => $data['hours_per_day'],
@@ -228,7 +253,7 @@ class EmployeeController extends Controller
 
         // daily_rate
         if (array_key_exists('daily_rate', $data) && $data['daily_rate'] !== $employee->daily_rate) {
-            \App\Models\EmployeeRate::create([
+            EmployeeRate::create([
                 'employee_id' => $employee->id,
                 'rate_type' => 'daily_rate',
                 'amount' => $data['daily_rate'] ?? 0,
@@ -239,7 +264,7 @@ class EmployeeController extends Controller
 
         // hourly_rate
         if (array_key_exists('hourly_rate', $data) && $data['hourly_rate'] !== $employee->hourly_rate) {
-            \App\Models\EmployeeRate::create([
+            EmployeeRate::create([
                 'employee_id' => $employee->id,
                 'rate_type' => 'hourly_rate',
                 'amount' => $data['hourly_rate'] ?? 0,
@@ -250,7 +275,7 @@ class EmployeeController extends Controller
 
         // hours_per_day
         if (array_key_exists('hours_per_day', $data) && $data['hours_per_day'] !== $employee->hours_per_day) {
-            \App\Models\EmployeeRate::create([
+            EmployeeRate::create([
                 'employee_id' => $employee->id,
                 'rate_type' => 'hours_per_day',
                 'amount' => $data['hours_per_day'] ?? 0,
@@ -306,30 +331,24 @@ class EmployeeController extends Controller
         return back()->with('success', 'Employee deleted successfully');
     }
 
-    /**
-     * Return JSON rate history for given employee.
-     */
-    public function rates($id)
+    public function destroyRate(Employee $employee, EmployeeRate $rate)
     {
-        $employee = Employee::findOrFail($id);
+        $this->authorize('update', $employee);
 
-        $rates = \App\Models\EmployeeRate::where('employee_id', $employee->id)
+        abort_unless($rate->employee_id === $employee->id, 404);
+
+        $rate->delete(); // soft delete — Auditable trait logs it automatically
+
+        $latestRemaining = EmployeeRate::where('employee_id', $employee->id)
+            ->where('rate_type', $rate->rate_type)
             ->orderByDesc('effective_from')
             ->orderByDesc('id')
-            ->get()
-            ->map(function ($r) {
-                return [
-                    'id' => $r->id,
-                    'rate_type' => $r->rate_type,
-                    'amount' => (float) $r->amount,
-                    'effective_from' => $r->effective_from,
-                    'effective_to' => $r->effective_to,
-                    'created_by' => $r->created_by,
-                    'created_by_name' => $r->created_by ? optional(\App\Models\User::find($r->created_by))->name : null,
-                    'created_at' => $r->created_at ? $r->created_at->toDateTimeString() : null,
-                ];
-            });
+            ->first();
 
-        return response()->json(['data' => $rates]);
+        if ($latestRemaining) {
+            $employee->update([$rate->rate_type => $latestRemaining->amount]);
+        }
+
+        return back()->with('success', 'Rate history entry deleted.');
     }
 }

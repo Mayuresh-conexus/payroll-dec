@@ -64,7 +64,7 @@
                                 <div class="flex justify-end items-center gap-2 text-slate-500">
                                     {{-- Edit --}}
                                     <button type="button"
-                                        @click='openEdit = true; editingUser = @json($user)'
+                                        @click="openEdit = true; editingUser = @js($user)"
                                         data-tooltip="Edit"
                                         class="p-1.5 rounded-md hover:bg-brand-50 hover:text-brand-600 transition">
                                         <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">

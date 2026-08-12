@@ -44,7 +44,7 @@
 
 @section('content')
 
-    <div x-data="payrollPage()" x-init='init(@json($rows))' class="space-y-6">
+    <div x-data="payrollPage()" x-init="init(@js($rows))" class="space-y-6">
 
         @include('payroll.partials._status_banner')
 

@@ -43,7 +43,7 @@
                             </a>
 
                             {{-- Restore --}}
-                            <button type="button" @click="openRestore(@json($backup))"
+                            <button type="button" @click="openRestore(@js($backup))"
                                 data-tooltip="Restore"
                                 class="p-1.5 rounded-md hover:bg-amber-50 hover:text-amber-600 transition">
                                 <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
@@ -52,7 +52,7 @@
                             </button>
 
                             {{-- Delete --}}
-                            <button type="button" @click="openDelete(@json($backup))"
+                            <button type="button" @click="openDelete(@js($backup))"
                                 data-tooltip="Delete"
                                 class="p-1.5 rounded-md hover:bg-rose-50 hover:text-rose-600 transition">
                                 <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">

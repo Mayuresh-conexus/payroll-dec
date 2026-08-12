@@ -87,6 +87,25 @@ class Employee extends Model
     }
 
     /**
+     * Employees with at least one payable day in the week beginning $weekStart:
+     * still active, or deactivated after that week had already started.
+     *
+     * Filtering on is_active alone would erase a leaver from the past weeks they
+     * actually worked, not just from the weeks after they left.
+     */
+    public function scopeActiveDuringWeek(Builder $query, \DateTimeInterface $weekStart): Builder
+    {
+        $start = Carbon::instance($weekStart)->toDateString();
+
+        return $query->where(function (Builder $q) use ($start) {
+            $q->where('is_active', true)
+                ->orWhere(fn (Builder $inner) => $inner
+                    ->whereNotNull('deactivated_at')
+                    ->whereDate('deactivated_at', '>', $start));
+        });
+    }
+
+    /**
      * Get the most recent rate amount for a given type from the rate history.
      * Falls back to the denormalized column on the employee if no history exists.
      * $type: 'daily_rate' | 'hourly_rate' | 'hours_per_day'

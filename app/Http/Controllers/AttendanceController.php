@@ -23,9 +23,12 @@ class AttendanceController extends Controller
 
         $user = auth()->user();
 
+        // The Monday of the selected week decides who was still employed during it.
+        $monday = Carbon::now()->setISODate((int) $year, (int) $week, 1);
+
         if ($user->hasRole('admin')) {
             $memberFilter = $request->input('member_filter', 'all'); // all | managers | employees
-            $baseQuery = Employee::where('is_active', true)->orderBy('name');
+            $baseQuery = Employee::activeDuringWeek($monday)->orderBy('name');
 
             if ($memberFilter === 'managers') {
                 $baseQuery->whereHas('user', fn ($q) => $q->where('role', 'manager'));
@@ -37,7 +40,7 @@ class AttendanceController extends Controller
             $hourlyEmployees = (clone $baseQuery)->where('type', 'hourly')->get();
         } else {
             $memberFilter = 'all';
-            $assigned = Employee::forManager($user->id)->where('is_active', true)->orderBy('name')->get();
+            $assigned = Employee::forManager($user->id)->activeDuringWeek($monday)->orderBy('name')->get();
             $dailyEmployees = $assigned->where('type', 'daily_rate')->values();
             $hourlyEmployees = $assigned->where('type', 'hourly')->values();
         }
@@ -52,9 +55,8 @@ class AttendanceController extends Controller
             ->get()
             ->keyBy('employee_id');
 
-        // compute ISO-week Monday and formatted date labels for each day
+        // formatted date labels for each day of the already-computed Monday
         $dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-        $monday = Carbon::now()->setISODate((int) $year, (int) $week, 1);
         $dayDates = [];
         foreach ($dayKeys as $i => $k) {
             $dayDates[$k] = strtoupper($monday->copy()->addDays($i)->format('d M'));
@@ -110,6 +112,7 @@ class AttendanceController extends Controller
             'year',
             'week',
             'tab',
+            'monday',
             'dayDates',
             'todayKey',
             'dailyEmployees',

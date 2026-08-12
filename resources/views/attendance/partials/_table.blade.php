@@ -104,11 +104,38 @@
                             class="hover:bg-slate-50/80 transition">
 
                             <td class="px-3 py-2 font-mono text-xs text-slate-600">{{ $employee->employee_code }}</td>
-                            <td class="px-3 py-2 text-sm font-medium text-slate-800">{{ $employee->name }}</td>
+                            <td class="px-3 py-2 text-sm font-medium text-slate-800">
+                                {{ $employee->name }}
+                                @if (! $employee->is_active && $employee->deactivated_at)
+                                    {{-- Still listed for the weeks they worked; days from the
+                                         cut-off onward are locked out below. --}}
+                                    <span class="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 align-middle whitespace-nowrap"
+                                        title="Deactivated with effect from {{ $employee->deactivated_at->format('d M Y') }}">
+                                        <span class="w-1 h-1 rounded-full bg-rose-400"></span>
+                                        Inactive {{ $employee->deactivated_at->format('d M Y') }}
+                                    </span>
+                                @endif
+                            </td>
                             <td class="px-3 py-2 text-sm text-slate-600">{{ $employee->department ?? 'Not set' }}</td>
                             <td class="px-3 py-2 text-xs text-slate-600">{{ $employee->type === 'daily_rate' ? 'Daily' : 'Hourly' }}</td>
 
-                            @foreach (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as $d)
+                            @foreach (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as $dayOffset => $d)
+                                @php
+                                    // Days on/after the deactivation date are not employed days:
+                                    // render them locked so nothing can be marked or submitted.
+                                    $dayIsAfterLeaving = ! $employee->isPaidOn($monday->copy()->addDays($dayOffset));
+                                @endphp
+
+                                @if ($dayIsAfterLeaving)
+                                    <td class="px-1 py-1 align-top text-center bg-slate-50/80">
+                                        <div class="flex flex-col items-center gap-1 opacity-50" title="Not employed on this date">
+                                            <span class="w-7 h-7 rounded-full bg-slate-200 text-slate-400 flex items-center justify-center text-[11px] font-semibold">–</span>
+                                            <span class="mt-1 text-[10px] text-slate-400">&nbsp;</span>
+                                        </div>
+                                    </td>
+                                    @continue
+                                @endif
+
                                 <td class="px-1 py-1 align-top text-center">
                                     @php
                                         $isWeekendOff = $defaultWorkingDays == 6

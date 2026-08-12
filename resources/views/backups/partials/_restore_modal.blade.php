@@ -3,7 +3,7 @@
     x-transition:enter="ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
     x-transition:leave="ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
     class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-    <div @click.outside="restoreModalOpen = false"
+    <div @click.outside="if (! restoring) restoreModalOpen = false"
         class="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md mx-4 overflow-hidden">
 
         {{-- Header --}}
@@ -19,7 +19,8 @@
             </div>
         </div>
 
-        <form :action="restoreTarget ? '{{ url('backups') }}/' + restoreTarget.filename + '/restore' : '#'" method="POST">
+        <form :action="restoreTarget ? '{{ url('backups') }}/' + restoreTarget.filename + '/restore' : '#'" method="POST"
+            @submit="beginRestore()">
             @csrf
             <input type="hidden" name="_modal" value="restore">
             <input type="hidden" name="_target_filename" :value="restoreTarget ? restoreTarget.filename : ''">
@@ -57,16 +58,36 @@
                 </div>
             </div>
 
+            {{-- In-progress notice, shown once the request is on its way --}}
+            <div x-show="restoring" x-cloak class="px-5 pb-5">
+                <div class="rounded-lg bg-slate-900 text-white px-4 py-3 flex items-center gap-3">
+                    <svg class="w-5 h-5 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"></path>
+                    </svg>
+                    <div>
+                        <p class="text-sm font-medium">Restoring database…</p>
+                        <p class="text-xs text-slate-300 mt-0.5">Taking a safety backup first. Do not close this tab.</p>
+                    </div>
+                </div>
+            </div>
+
             {{-- Footer --}}
             <div class="flex items-center justify-end gap-2 px-5 py-4 bg-slate-50 border-t border-slate-100">
-                <button type="button" @click="restoreModalOpen = false"
+                <button type="button" @click="restoreModalOpen = false" x-show="! restoring"
                     class="px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
                     Cancel
                 </button>
-                <button type="submit" :disabled="restoreConfirmText !== restoreTarget?.filename"
-                    class="px-4 py-2 rounded-lg text-white text-sm font-medium transition"
-                    :class="restoreConfirmText === restoreTarget?.filename ? 'bg-rose-600 hover:bg-rose-700' : 'bg-rose-300 cursor-not-allowed'">
-                    Yes, Restore Database
+                <button type="submit" :disabled="restoring || restoreConfirmText !== restoreTarget?.filename"
+                    class="px-4 py-2 rounded-lg text-white text-sm font-medium transition inline-flex items-center gap-2"
+                    :class="restoring
+                        ? 'bg-slate-400 cursor-wait'
+                        : (restoreConfirmText === restoreTarget?.filename ? 'bg-rose-600 hover:bg-rose-700' : 'bg-rose-300 cursor-not-allowed')">
+                    <svg x-show="restoring" x-cloak class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"></path>
+                    </svg>
+                    <span x-text="restoring ? 'Restoring…' : 'Yes, Restore Database'"></span>
                 </button>
             </div>
         </form>

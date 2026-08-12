@@ -130,6 +130,20 @@ class BackupManagementTest extends TestCase
             ->assertSessionHasErrors('confirmation');
     }
 
+    public function test_runtime_tables_are_excluded_from_backups(): void
+    {
+        // Regression guard: including `sessions` meant a restore swapped the session
+        // store mid-request, so the page's CSRF token stopped matching and the next
+        // restore was rejected with a 419 that looked like "restore is broken".
+        $excluded = config('backup.excluded_tables');
+
+        $this->assertContains('sessions', $excluded);
+        $this->assertContains('cache', $excluded);
+        $this->assertNotContains('employees', $excluded, 'business data must still be backed up');
+        $this->assertNotContains('payroll_items', $excluded);
+        $this->assertNotContains('migrations', $excluded, 'schema state is needed to restore coherently');
+    }
+
     // ── Schedule settings ────────────────────────────────────────────────────
 
     public function test_admin_can_update_schedule_settings(): void

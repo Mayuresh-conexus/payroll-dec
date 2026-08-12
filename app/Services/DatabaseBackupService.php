@@ -153,6 +153,13 @@ class DatabaseBackupService
             '--default-character-set=utf8mb4',
         ];
 
+        // Leave runtime tables out entirely. Because they are absent from the dump,
+        // a restore also leaves them alone — the admin's session and CSRF token
+        // survive the operation instead of being swapped mid-request.
+        foreach ((array) config('backup.excluded_tables', []) as $table) {
+            $command[] = '--ignore-table='.$this->databaseName().'.'.$table;
+        }
+
         // MariaDB's mysqldump doesn't recognize --set-gtid-purged (it predates MySQL's
         // GTID_PURGED variable and uses its own replication model), so only pass it when
         // the binary actually advertises support — otherwise the dump aborts immediately.

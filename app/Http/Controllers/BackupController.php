@@ -98,7 +98,10 @@ class BackupController extends Controller
             'pre_restore_filename' => $preRestore['filename'] ?? null,
         ]);
 
-        return back()->with('success', "Database restored from {$filename}. Safety backup: ".($preRestore['filename'] ?? 'unknown'));
+        return back()->with(
+            'restore_completed',
+            "Restored from {$filename}. A safety backup of the previous state was saved as ".($preRestore['filename'] ?? 'unknown').'.'
+        );
     }
 
     public function destroy(string $filename): RedirectResponse

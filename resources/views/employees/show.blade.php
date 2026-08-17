@@ -85,6 +85,12 @@
                         {{ $employee->bank_transfer_fix_amount ? '€' . number_format($employee->bank_transfer_fix_amount, 2) : '—' }}
                     </dd>
                 </div>
+                <div>
+                    <dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">BH Bank Share</dt>
+                    <dd class="text-slate-800 mt-0.5">
+                        {{ ($employee->bh_bank_percent ?? 0) > 0 ? number_format($employee->bh_bank_percent, 2).'%' : 'All cash' }}
+                    </dd>
+                </div>
                 <div class="min-w-0">
                     <dt class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Bank Account</dt>
                     <dd class="text-slate-800 mt-0.5 truncate">{{ $bankLine ?? '—' }}</dd>

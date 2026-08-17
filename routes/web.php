@@ -4,6 +4,8 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BackupController;
 use App\Http\Controllers\EmployeeController;
+use App\Http\Controllers\HolidayController;
+use App\Http\Controllers\LeaveController;
 use App\Http\Controllers\ManagerAssignmentController;
 use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\UsersController;
@@ -59,6 +61,14 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
 
     // MISSING-01: User Management
     Route::resource('users', UsersController::class)->except(['show']);
+
+    // Bank Holidays
+    Route::resource('holidays', HolidayController::class)->except(['show', 'create']);
+
+    // Employee Leave — the parameter is pinned because "leaves" singularises to "leaf"
+    Route::resource('leaves', LeaveController::class)
+        ->parameters(['leaves' => 'leave'])
+        ->except(['show', 'create', 'edit']);
 
     // Manager Assignment
     Route::get('/managers', [ManagerAssignmentController::class, 'index'])->name('managers.index');

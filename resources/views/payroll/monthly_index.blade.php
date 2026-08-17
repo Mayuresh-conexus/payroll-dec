@@ -59,6 +59,11 @@
                             <th class="px-4 py-3 text-center">Type</th>
                             <th class="px-4 py-3 text-right">Weekly</th>
                             <th class="px-4 py-3 text-right">Addons</th>
+                            <th class="px-4 py-3 text-right">
+                                BH
+                                <span class="text-slate-400 font-normal normal-case text-xs ml-1"
+                                      title="Bank-holiday double pay for the month. Already included in Gross, Cash and Bank.">ⓘ</span>
+                            </th>
                             <th class="px-4 py-3 text-right">Gross</th>
                             <th class="px-4 py-3 text-right">Cash</th>
                             <th class="px-4 py-3 text-right">Bank</th>
@@ -118,6 +123,10 @@
                                 </td>
                                 <td class="px-4 py-3 text-right text-sm text-purple-700 font-semibold bg-purple-50">
                                     {{ number_format($addonsTotal, 2) }}
+                                </td>
+                                <td class="px-4 py-3 text-right text-sm {{ ($row['bh_amount'] ?? 0) > 0 ? 'text-violet-700 font-semibold bg-violet-50' : 'text-slate-300' }}"
+                                    @if (($row['bh_amount'] ?? 0) > 0) title="{{ number_format($row['bh_cash'] ?? 0, 2) }} cash / {{ number_format($row['bh_bank'] ?? 0, 2) }} bank" @endif>
+                                    {{ ($row['bh_amount'] ?? 0) > 0 ? number_format($row['bh_amount'], 2) : '—' }}
                                 </td>
 
                                 <td class="px-4 py-3 text-right text-sm text-slate-800">

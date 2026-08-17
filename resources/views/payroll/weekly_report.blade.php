@@ -63,6 +63,7 @@
                         <th class="px-4 py-3 text-center">Absent</th>
                         <th class="px-4 py-3 text-right">Weekly</th>
                         <th class="px-4 py-3 text-right">Addons</th>
+                        <th class="px-4 py-3 text-right">BH</th>
                         <th class="px-4 py-3 text-right">Cash</th>
                         <th class="px-4 py-3 text-right">Bank</th>
                     </tr>
@@ -148,6 +149,10 @@
                             </td>
 
 
+                            <td class="px-4 py-3 text-right text-sm {{ ($pay->bh_amount ?? 0) > 0 ? 'text-violet-700 font-medium' : 'text-slate-300' }}"
+                                @if (($pay->bh_amount ?? 0) > 0) title="Bank-holiday double pay — {{ number_format($pay->bh_cash ?? 0, 2) }} cash / {{ number_format($pay->bh_bank ?? 0, 2) }} bank" @endif>
+                                {{ ($pay->bh_amount ?? 0) > 0 ? number_format($pay->bh_amount, 2) : '—' }}
+                            </td>
                             <td class="px-4 py-3 text-right text-sm">{{ number_format($pay->cash_amount ?? 0, 2) }}</td>
                             <td class="px-4 py-3 text-right text-sm">{{ number_format($pay->bank_amount ?? 0, 2) }}</td>
                         </tr>

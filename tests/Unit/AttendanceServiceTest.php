@@ -528,4 +528,251 @@ class AttendanceServiceTest extends TestCase
         $this->assertEquals(700.0, (float) $item->advance_given, 'Full bank_fix is an advance');
         $this->assertEquals(700.0, (float) $item->advance_balance, 'Balance = full advance');
     }
+
+    // ── Overtime is derived, not accumulated ─────────────────────────────────
+
+    public function test_hourly_overtime_is_the_hours_above_the_daily_norm(): void
+    {
+        // 8 h/day: a 10 h day is 8 regular + 2 OT, an 11 h day is 8 + 3.
+        $emp = Employee::factory()->create([
+            'type' => 'hourly', 'hourly_rate' => 17.50, 'hours_per_day' => 8,
+        ]);
+
+        $this->service->saveHourlyEmployee($emp->id, [
+            'hours_map' => ['mon' => 10, 'tue' => 10, 'wed' => 11, 'thu' => 11, 'fri' => 8],
+        ], 2026, 31, false);
+
+        $att = \App\Models\HourlyAttendance::where('employee_id', $emp->id)->where('week_number', 31)->first();
+
+        $this->assertEquals([2, 2, 3, 3, 0], [
+            $att->ot_map['mon'], $att->ot_map['tue'], $att->ot_map['wed'],
+            $att->ot_map['thu'], $att->ot_map['fri'],
+        ]);
+        $this->assertEqualsWithDelta(10.0, $att->overtime_hours, 0.001);
+        $this->assertEqualsWithDelta(40.0, $att->total_hours, 0.001, 'regular hours = 50 worked - 10 OT');
+    }
+
+    public function test_resaving_the_same_week_does_not_grow_overtime(): void
+    {
+        // Regression guard: payroll's "refresh week" re-saves attendance and passes
+        // the stored ot_map straight back in. When OT was added to the derived
+        // amount instead of derived from hours, every refresh doubled it up —
+        // a 10 h day drifted 2 -> 4 -> 6 OT while the hours themselves never moved.
+        $emp = Employee::factory()->create([
+            'type' => 'hourly', 'hourly_rate' => 17.50, 'hours_per_day' => 8,
+        ]);
+
+        $hours = ['mon' => 10, 'tue' => 10, 'wed' => 11, 'thu' => 11, 'fri' => 8];
+        $this->service->saveHourlyEmployee($emp->id, ['hours_map' => $hours], 2026, 31, false);
+
+        for ($i = 0; $i < 3; $i++) {
+            $att = \App\Models\HourlyAttendance::where('employee_id', $emp->id)->where('week_number', 31)->first();
+
+            $this->service->saveHourlyEmployee($emp->id, [
+                'hours_map' => $att->hours_map,
+                'ot_map' => $att->ot_map,
+                'days' => [],
+            ], 2026, 31, false);
+        }
+
+        $att = \App\Models\HourlyAttendance::where('employee_id', $emp->id)->where('week_number', 31)->first();
+
+        $this->assertEqualsWithDelta(10.0, $att->overtime_hours, 0.001, 'OT must not compound across refreshes');
+        $this->assertEqualsWithDelta(40.0, $att->total_hours, 0.001);
+        $this->assertEqualsWithDelta(2.0, $att->ot_map['mon'], 0.001);
+        $this->assertEqualsWithDelta(3.0, $att->ot_map['wed'], 0.001);
+    }
+
+    // ── Bank holidays ────────────────────────────────────────────────────────
+
+    public function test_working_a_bank_holiday_pays_double_and_splits_the_extra(): void
+    {
+        // 135/day with 40% of the premium to bank: 135 base + 135 extra = 270.
+        // Only the 81 cash share is weekly earnings — the 54 bank share leaves as
+        // its own transfer, so weekly_amount is 135 + 81 = 216.
+        // Week 31 of 2026 holds 31 July, so it settles that month.
+        \App\Models\Holiday::factory()->on('2026-07-27')->create(['name' => 'August BH']);
+
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135,
+            'bh_bank_percent' => 40, 'bank_transfer_fix_amount' => 0,
+        ]);
+
+        $this->service->saveDailyEmployee($emp->id, ['days' => ['mon' => 1]], 2026, 31, false);
+
+        $item = \App\Models\PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(216.0, (float) $item->weekly_amount, 0.001, 'base + cash share only');
+        $this->assertEqualsWithDelta(135.0, (float) $item->bh_amount, 0.001);
+        $this->assertEqualsWithDelta(81.0, (float) $item->bh_cash, 0.001);
+        $this->assertEqualsWithDelta(54.0, (float) $item->bh_bank, 0.001);
+        $this->assertEqualsWithDelta(0.0, (float) $item->bank_amount, 0.001, 'bank stays the fixed amount');
+        $this->assertEqualsWithDelta(40.0, (float) $item->applied_bh_bank_percent, 0.001);
+
+        // Double pay still holds across the two channels: 216 + 54 = 270.
+        $this->assertEqualsWithDelta(270.0, (float) $item->weekly_amount + (float) $item->bh_bank, 0.001);
+    }
+
+    public function test_a_bank_holiday_that_is_not_worked_pays_nothing_extra(): void
+    {
+        \App\Models\Holiday::factory()->on('2026-07-27')->create();
+
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135, 'bh_bank_percent' => 40,
+        ]);
+
+        // Present Tue and Wed, absent on the holiday itself.
+        $this->service->saveDailyEmployee($emp->id, ['days' => ['tue' => 1, 'wed' => 1]], 2026, 31, false);
+
+        $item = \App\Models\PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(270.0, (float) $item->weekly_amount, 0.001, '2 ordinary days only');
+        $this->assertEqualsWithDelta(0.0, (float) $item->bh_amount, 0.001);
+    }
+
+    public function test_hourly_bank_holiday_doubles_every_hour_including_overtime(): void
+    {
+        // 10 h at 17.50 on an 8 h norm: 140 regular + 35 overtime = 175 normally,
+        // and the premium doubles all ten hours, so the day is worth 350.
+        \App\Models\Holiday::factory()->on('2026-07-27')->create();
+
+        $emp = Employee::factory()->create([
+            'type' => 'hourly', 'hourly_rate' => 17.50, 'hours_per_day' => 8,
+            'bh_bank_percent' => 0,
+        ]);
+
+        $this->service->saveHourlyEmployee($emp->id, ['hours_map' => ['mon' => 10]], 2026, 31, false);
+
+        $item = \App\Models\PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(350.0, (float) $item->weekly_amount, 0.001);
+        $this->assertEqualsWithDelta(175.0, (float) $item->bh_amount, 0.001);
+        $this->assertEqualsWithDelta(175.0, (float) $item->bh_cash, 0.001, '0% to bank means all cash');
+        $this->assertEqualsWithDelta(0.0, (float) $item->bh_bank, 0.001);
+    }
+
+    public function test_a_bank_holiday_after_the_leaving_date_pays_nothing(): void
+    {
+        \App\Models\Holiday::factory()->on('2026-07-29')->create(); // Wednesday
+
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135, 'bh_bank_percent' => 40,
+            'is_active' => false, 'deactivated_at' => '2026-07-28', // left on the Tuesday
+        ]);
+
+        $this->service->saveDailyEmployee($emp->id, ['days' => ['mon' => 1, 'wed' => 1]], 2026, 31, false);
+
+        $item = \App\Models\PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(0.0, (float) $item->bh_amount, 0.001);
+        $this->assertEqualsWithDelta(135.0, (float) $item->weekly_amount, 0.001, 'only the Monday is payable');
+    }
+
+    public function test_resaving_the_same_week_does_not_grow_the_bank_holiday_premium(): void
+    {
+        // Same guard as overtime: payroll's refresh re-saves attendance, and the
+        // premium must be derived each time rather than accumulated.
+        \App\Models\Holiday::factory()->on('2026-07-27')->create();
+
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135, 'bh_bank_percent' => 40,
+        ]);
+
+        for ($i = 0; $i < 4; $i++) {
+            $this->service->saveDailyEmployee($emp->id, ['days' => ['mon' => 1]], 2026, 31, false);
+        }
+
+        $item = \App\Models\PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(135.0, (float) $item->bh_amount, 0.001);
+        $this->assertEqualsWithDelta(216.0, (float) $item->weekly_amount, 0.001);
+    }
+
+    public function test_a_bank_holiday_week_does_not_create_a_phantom_advance(): void
+    {
+        // advance_given is derived as bank - weekly in several places. The premium
+        // lives inside weekly_amount, so a BH week must not look like an advance.
+        \App\Models\Holiday::factory()->on('2026-07-27')->create();
+
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135,
+            'bh_bank_percent' => 100, 'bank_transfer_fix_amount' => 200,
+        ]);
+
+        $this->service->saveDailyEmployee($emp->id, ['days' => ['mon' => 1, 'tue' => 1]], 2026, 31, false);
+
+        $item = \App\Models\PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+
+        // 100% of the premium goes to bank, so weekly earnings are just the two
+        // days (270) and the bank transfer stays at the fixed 200.
+        $this->assertEqualsWithDelta(270.0, (float) $item->weekly_amount, 0.001);
+        $this->assertEqualsWithDelta(200.0, (float) $item->bank_amount, 0.001);
+        $this->assertEqualsWithDelta(135.0, (float) $item->bh_bank, 0.001);
+        $this->assertEqualsWithDelta(0.0, (float) $item->advance_given, 0.001);
+        $this->assertEqualsWithDelta(0.0, (float) $item->advance_balance, 0.001);
+    }
+
+    public function test_a_holiday_is_not_paid_in_its_own_week_but_in_the_month_settlement_week(): void
+    {
+        // Week 28 of 2026 (6-12 July) contains the holiday; week 31 holds 31 July
+        // and is where the month clears.
+        \App\Models\Holiday::factory()->on('2026-07-08')->create();
+
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135, 'bh_bank_percent' => 40,
+        ]);
+
+        $this->service->saveDailyEmployee($emp->id, ['days' => ['wed' => 1]], 2026, 28, false);
+        $this->service->saveDailyEmployee($emp->id, ['days' => ['mon' => 1]], 2026, 31, false);
+
+        $holidayWeek = \App\Models\PayrollItem::whereRelation('run', 'week_number', 28)
+            ->where('employee_id', $emp->id)->firstOrFail();
+        $settlementWeek = \App\Models\PayrollItem::whereRelation('run', 'week_number', 31)
+            ->where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(0.0, (float) $holidayWeek->bh_amount, 0.001, 'nothing settles in the holiday week');
+        $this->assertEqualsWithDelta(135.0, (float) $holidayWeek->weekly_amount, 0.001, 'just the day worked');
+
+        $this->assertEqualsWithDelta(135.0, (float) $settlementWeek->bh_amount, 0.001, 'the month clears here');
+        $this->assertEqualsWithDelta(81.0, (float) $settlementWeek->bh_cash, 0.001);
+        $this->assertEqualsWithDelta(216.0, (float) $settlementWeek->weekly_amount, 0.001);
+    }
+
+    public function test_every_holiday_in_the_month_accumulates_into_one_settlement(): void
+    {
+        \App\Models\Holiday::factory()->on('2026-07-08')->create();
+        \App\Models\Holiday::factory()->on('2026-07-15')->create();
+
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135, 'bh_bank_percent' => 40,
+        ]);
+
+        $this->service->saveDailyEmployee($emp->id, ['days' => ['wed' => 1]], 2026, 28, false);
+        $this->service->saveDailyEmployee($emp->id, ['days' => ['wed' => 1]], 2026, 29, false);
+        $this->service->saveDailyEmployee($emp->id, ['days' => ['mon' => 1]], 2026, 31, false);
+
+        $item = \App\Models\PayrollItem::whereRelation('run', 'week_number', 31)
+            ->where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(270.0, (float) $item->bh_amount, 0.001, 'two holidays worked');
+        $this->assertEqualsWithDelta(162.0, (float) $item->bh_cash, 0.001);
+        $this->assertEqualsWithDelta(108.0, (float) $item->bh_bank, 0.001);
+    }
+
+    public function test_a_holiday_falling_in_the_next_month_is_not_settled_early(): void
+    {
+        // Week 31 spans 27 Jul - 2 Aug. A holiday on 1 August belongs to August,
+        // so July's settlement in that same week must ignore it.
+        \App\Models\Holiday::factory()->on('2026-08-01')->create();
+
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135, 'bh_bank_percent' => 40,
+        ]);
+
+        $this->service->saveDailyEmployee($emp->id, ['days' => ['sat' => 1]], 2026, 31, false);
+
+        $item = \App\Models\PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(0.0, (float) $item->bh_amount, 0.001);
+    }
 }

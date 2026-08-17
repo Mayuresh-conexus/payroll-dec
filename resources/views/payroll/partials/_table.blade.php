@@ -5,55 +5,111 @@
     <input type="hidden" name="year" value="{{ $year }}">
     <input type="hidden" name="week" value="{{ $week }}">
 
+    @php
+        // The row is wider than most screens, so the identity columns pin to the
+        // left and the payslip action to the right while the money scrolls between
+        // them. Sticky cells need an opaque background of their own — a translucent
+        // row hover would let the scrolling columns show through underneath.
+        $stickyCode = 'sticky left-0 z-10 bg-white group-hover:bg-slate-50';
+        $stickyName = 'sticky left-[92px] z-10 bg-white group-hover:bg-slate-50 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.12)]';
+        $stickyAction = 'sticky right-0 z-10 bg-white group-hover:bg-slate-50 shadow-[-2px_0_4px_-2px_rgba(15,23,42,0.12)]';
+        $headCode = 'sticky left-0 z-20 bg-slate-50';
+        $headName = 'sticky left-[92px] z-20 bg-slate-50 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.12)]';
+        $headAction = 'sticky right-0 z-20 bg-slate-50 shadow-[-2px_0_4px_-2px_rgba(15,23,42,0.12)]';
+        $footCode = 'sticky left-0 z-10 bg-slate-50';
+        $footName = 'sticky left-[92px] z-10 bg-slate-50 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.12)]';
+        $footAction = 'sticky right-0 z-10 bg-slate-50 shadow-[-2px_0_4px_-2px_rgba(15,23,42,0.12)]';
+        $groupEdge = 'border-l border-slate-200';
+
+        // Bank-holiday pay is cleared once a month, so these two columns only
+        // appear on the week that settles a month containing a holiday.
+        $showBh = $showBankHoliday ?? false;
+
+        // Likewise the leave column: most weeks nobody is away.
+        $showLeaveColumn = $showLeave ?? false;
+        $leaveTotal = $showLeaveColumn ? $rows->sum(fn (array $row) => (float) ($row['leave_amount'] ?? 0)) : 0.0;
+
+        $columnCount = 8 + ($showBh ? 2 : 0) + ($showLeaveColumn ? 1 : 0);
+    @endphp
+
     <div class="overflow-x-auto">
         <table class="min-w-full text-sm">
             <thead class="bg-slate-50 text-slate-500 uppercase text-xs font-semibold">
                 <tr>
-                    <th class="px-4 py-3 text-left">Code</th>
-                    <th class="px-4 py-3 text-left">Name</th>
-                    <th class="px-4 py-3 text-center">Type</th>
-                    <th class="px-4 py-3 text-right">Rate</th>
-                    <th class="px-4 py-3 text-center">Attendance</th>
-                    <th class="px-4 py-3 text-right">Weekly Total</th>
-                    <th class="px-4 py-3 text-right">Weekly Cash</th>
-                    <th class="px-4 py-3 text-right">Weekly Bank</th>
-                    <th class="px-4 py-3 text-right">
+                    <th rowspan="2" class="{{ $headCode }} w-[92px] px-3 py-2 text-left"><div class="w-[68px]">Code</div></th>
+                    <th rowspan="2" class="{{ $headName }} w-[200px] px-4 py-2 text-left"><div class="w-[168px]">Employee</div></th>
+                    <th rowspan="2" class="w-[150px] px-3 py-2 text-left">Attendance</th>
+                    <th colspan="3" class="{{ $groupEdge }} px-4 py-2 text-center">Weekly</th>
+                    @if ($showBh)
+                        <th colspan="2" class="{{ $groupEdge }} px-4 py-2 text-center text-violet-700">
+                            Bank Holiday
+                            <span class="ml-1 text-violet-300 font-normal normal-case"
+                                  title="Double pay for every bank holiday worked this month, cleared in this week. The cash share is included in Weekly Cash; the bank share is a separate transfer on top of Weekly Bank.">&#9432;</span>
+                        </th>
+                    @endif
+                    @if ($showLeaveColumn)
+                        <th rowspan="2" class="{{ $groupEdge }} w-[110px] px-4 py-2 text-right text-sky-700">
+                            Leave
+                            <span class="ml-1 text-sky-300 font-normal normal-case"
+                                  title="Paid leave taken this week. Already included in the Weekly total to its left.">&#9432;</span>
+                        </th>
+                    @endif
+                    <th rowspan="2" class="{{ $groupEdge }} w-[130px] px-4 py-2 text-right">
                         Arrears
                         <span class="ml-1 text-slate-400 font-normal normal-case"
-                              title="Running advance arrears. Positive = employee has received more than earned (advance outstanding).">ⓘ</span>
+                              title="Running advance arrears. Positive = employee has received more than earned (advance outstanding).">&#9432;</span>
                     </th>
-                    <th class="px-4 py-3 text-center">Payslip</th>
+                    <th rowspan="2" class="{{ $headAction }} w-[84px] px-3 py-2 text-center">Payslip</th>
+                </tr>
+                <tr>
+                    <th class="{{ $groupEdge }} w-[115px] px-4 py-2 text-right font-medium normal-case">Total</th>
+                    <th class="w-[115px] px-4 py-2 text-right font-medium normal-case">Cash</th>
+                    <th class="w-[115px] px-4 py-2 text-right font-medium normal-case">Bank</th>
+                    @if ($showBh)
+                        <th class="{{ $groupEdge }} w-[100px] px-4 py-2 text-right font-medium normal-case text-violet-700">Cash</th>
+                        <th class="w-[100px] px-4 py-2 text-right font-medium normal-case text-violet-700">Bank</th>
+                    @endif
                 </tr>
             </thead>
 
             <tbody class="divide-y divide-slate-100">
                 @forelse($rows as $index => $row)
                     @php $emp = $row['employee']; @endphp
-                    <tr class="hover:bg-slate-50/80">
-                        <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ $emp->employee_code }}</td>
-                        <td class="px-4 py-3 text-sm font-medium text-slate-800">
-                            {{ $emp->name }}
-                            @unless ($emp->is_active)
-                                {{-- Deactivated mid-period: kept here so already-recorded
-                                     attendance still gets paid, but flagged so it is obvious. --}}
-                                <span class="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 align-middle"
-                                    title="This employee is deactivated. They appear here because attendance was already recorded for this week.">
-                                    <span class="w-1 h-1 rounded-full bg-rose-400"></span>Inactive
+                    <tr class="group hover:bg-slate-50">
+                        <td class="{{ $stickyCode }} px-3 py-3 align-top">
+                            <div class="w-[68px]">
+                                <div class="font-mono text-xs text-slate-600 truncate" title="{{ $emp->employee_code }}">{{ $emp->employee_code }}</div>
+                                @unless ($emp->is_active)
+                                    {{-- Status sits under the code rather than beside the
+                                         name, so the name column keeps its full width. --}}
+                                    <span class="mt-1 inline-flex items-center gap-1 px-1 py-0.5 rounded text-[9px] font-semibold bg-rose-50 text-rose-700"
+                                        title="This employee is deactivated. They appear here because attendance was already recorded for this week.">
+                                        <span class="w-1 h-1 rounded-full bg-rose-400"></span>Inactive
+                                    </span>
+                                @endunless
+                            </div>
+                        </td>
+                        <td class="{{ $stickyName }} px-4 py-3 align-top">
+                            <div class="w-[168px]">
+                            {{-- Type and rate ride under the name: they are reference,
+                                 not figures to scan across, and folding them in here
+                                 keeps two more money columns on screen. --}}
+                            <div class="text-sm font-medium text-slate-800 truncate" title="{{ $emp->name }}">{{ $emp->name }}</div>
+                            {{-- Pay type and rate ride in one capsule: they are a single
+                                 fact ("what this person is paid"), so they read as one
+                                 chip rather than two competing items. Kept neutral so the
+                                 only tinted thing on the row is a real status, like Inactive. --}}
+                            <div class="mt-1">
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-[11px] text-slate-600 whitespace-nowrap"
+                                    title="Rate effective for this payroll week, from rate history">
+                                    <span class="font-medium">{{ $row['type'] === 'daily_rate' ? 'Daily' : 'Hourly' }}</span>
+                                    <span class="text-slate-400">:</span>
+                                    <span class="font-mono">&euro;{{ number_format($row['rate'] ?? 0, 2) }}</span>
                                 </span>
-                            @endunless
+                            </div>
+                            </div>
                         </td>
-                        <td class="px-4 py-3 text-center text-xs">
-                            @if ($row['type'] === 'daily_rate')
-                                <span class="inline-flex px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Daily</span>
-                            @else
-                                <span class="inline-flex px-2 py-1 rounded-full bg-brand-50 text-brand-700">Hourly</span>
-                            @endif
-                        </td>
-                        <td class="px-4 py-3 text-right text-xs text-slate-600 font-mono"
-                            title="Rate effective for this payroll week, from rate history">
-                            €{{ number_format($row['rate'] ?? 0, 2) }}{{ $row['type'] === 'daily_rate' ? '/day' : '/hr' }}
-                        </td>
-                        <td class="px-4 py-3 text-center text-xs text-slate-600">
+                        <td class="px-3 py-3 text-left text-xs text-slate-600">
                             @if ($row['type'] === 'daily_rate')
                                 @if (!empty($row['sun_present']))
                                     {{ $row['present_days'] - 1 }}/{{ $row['total_days'] }} days
@@ -81,7 +137,7 @@
                                 @endif
                             @endif
                         </td>
-                        <td class="px-4 py-3 text-right text-sm text-slate-800">
+                        <td class="{{ $groupEdge }} px-4 py-3 text-right text-sm text-slate-800">
                             <span x-text="formatMoney(items[{{ $index }}].weekly_amount)"></span>
                             {{-- Zero-earnings warning: no pay this week but bank will still transfer --}}
                             <template x-if="items[{{ $index }}].weekly_amount === 0 && items[{{ $index }}].bank > 0">
@@ -117,8 +173,45 @@
                             @endif
                         </td>
 
+                        {{-- BH split — derived from the employee's percentage, so shown
+                             rather than edited. Both figures are already inside the
+                             Weekly Cash / Weekly Bank totals to their left. --}}
+                        @if ($showBh)
+                            <td class="{{ $groupEdge }} px-4 py-3 text-right align-top">
+                                @if (($row['bh_cash'] ?? 0) > 0)
+                                    <span class="font-mono text-sm text-violet-700">{{ number_format($row['bh_cash'], 2) }}</span>
+                                @else
+                                    <span class="text-slate-300 text-sm select-none">—</span>
+                                @endif
+                            </td>
+                            <td class="px-4 py-3 text-right align-top">
+                                @if (($row['bh_bank'] ?? 0) > 0)
+                                    <span class="font-mono text-sm text-violet-700">{{ number_format($row['bh_bank'], 2) }}</span>
+                                @else
+                                    <span class="text-slate-300 text-sm select-none">—</span>
+                                @endif
+                            </td>
+                        @endif
+
+                        {{-- Leave — paid at the week's own rate and already inside the
+                             Weekly total, so it is shown as a breakdown, not edited. --}}
+                        @if ($showLeaveColumn)
+                            <td class="{{ $groupEdge }} px-4 py-3 text-right align-top">
+                                @if (($row['leave_amount'] ?? 0) > 0)
+                                    <div class="font-mono text-sm text-sky-700">{{ number_format($row['leave_amount'], 2) }}</div>
+                                    <div class="mt-0.5 text-[11px] text-sky-600">
+                                        {{ $row['type'] === 'daily_rate'
+                                            ? (float) ($row['leave_days'] ?? 0).' d'
+                                            : (float) ($row['leave_hours'] ?? 0).' hrs' }}
+                                    </div>
+                                @else
+                                    <span class="text-slate-300 text-sm select-none">—</span>
+                                @endif
+                            </td>
+                        @endif
+
                         {{-- Arrears column — compact badges only, detail opens in modal --}}
-                        <td class="px-4 py-3 text-right align-middle">
+                        <td class="{{ $groupEdge }} px-4 py-3 text-right align-middle">
 
                             {{-- No advance --}}
                             <template x-if="items[{{ $index }}].prev_advance_balance === 0 && advanceBalance({{ $index }}) === 0">
@@ -166,7 +259,7 @@
                         </td>
 
                         {{-- Payslip PDF download --}}
-                        <td class="px-4 py-3 text-center align-top">
+                        <td class="{{ $stickyAction }} px-3 py-3 text-center align-top">
                             <a href="{{ route('payroll.payslip', ['year' => $year, 'week' => $week, 'employee' => $emp->id]) }}"
                                 target="_blank"
                                 title="Download payslip for {{ $emp->name }}"
@@ -184,6 +277,12 @@
                             <input type="hidden" name="items[{{ $index }}][gross]"                    :value="items[{{ $index }}].gross_amount">
                             <input type="hidden" name="items[{{ $index }}][cash]"                     :value="items[{{ $index }}].cash">
                             <input type="hidden" name="items[{{ $index }}][bank]"                     :value="items[{{ $index }}].bank">
+                            <input type="hidden" name="items[{{ $index }}][bh_amount]"                value="{{ $row['bh_amount'] ?? 0 }}">
+                            <input type="hidden" name="items[{{ $index }}][bh_cash]"                  value="{{ $row['bh_cash'] ?? 0 }}">
+                            <input type="hidden" name="items[{{ $index }}][bh_bank]"                  value="{{ $row['bh_bank'] ?? 0 }}">
+                            <input type="hidden" name="items[{{ $index }}][leave_days]"               value="{{ $row['leave_days'] ?? 0 }}">
+                            <input type="hidden" name="items[{{ $index }}][leave_hours]"              value="{{ $row['leave_hours'] ?? 0 }}">
+                            <input type="hidden" name="items[{{ $index }}][leave_amount]"             value="{{ $row['leave_amount'] ?? 0 }}">
                             <input type="hidden" name="items[{{ $index }}][addons]"                   :value="JSON.stringify(items[{{ $index }}].addons || [])">
                             <input type="hidden" name="items[{{ $index }}][addons_selected_dates]"    :value="JSON.stringify(items[{{ $index }}].selectedAddons || [])">
                             <input type="hidden" name="items[{{ $index }}][total_days]"               value="{{ $row['total_days'] }}">
@@ -197,7 +296,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="10" class="px-4 py-6 text-center text-sm text-slate-500">
+                        <td colspan="{{ $columnCount }}" class="px-4 py-6 text-center text-sm text-slate-500">
                             No attendance found for this week. Please fill attendance first.
                         </td>
                     </tr>
@@ -207,11 +306,23 @@
             @if ($rows->count())
                 <tfoot class="bg-slate-50 text-sm">
                     <tr>
-                        <td colspan="5" class="px-4 py-3 text-right font-semibold text-slate-700">Totals</td>
-                        <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.weeklyAmount)"></span></td>
+                        {{-- Mirrors the header's sticky columns so "Totals" stays put
+                             and the figures never drift out of their columns. --}}
+                        <td class="{{ $footCode }} px-3 py-3"></td>
+                        <td class="{{ $footName }} px-4 py-3 text-right font-semibold text-slate-700">Totals</td>
+                        <td class="px-3 py-3"></td>{{-- attendance spacer --}}
+                        <td class="{{ $groupEdge }} px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.weeklyAmount)"></span></td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.cash)"></span></td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.bank)"></span></td>
-                        <td class="px-4 py-3"></td>{{-- arrears column spacer --}}
+                        @if ($showBh)
+                            <td class="{{ $groupEdge }} px-4 py-3 text-right font-semibold text-violet-700"><span x-text="formatMoney(totals.bhCash)"></span></td>
+                            <td class="px-4 py-3 text-right font-semibold text-violet-700"><span x-text="formatMoney(totals.bhBank)"></span></td>
+                        @endif
+                        @if ($showLeaveColumn)
+                            <td class="{{ $groupEdge }} px-4 py-3 text-right font-semibold text-sky-700">{{ number_format($leaveTotal, 2) }}</td>
+                        @endif
+                        <td class="{{ $groupEdge }} px-4 py-3"></td>{{-- arrears spacer --}}
+                        <td class="{{ $footAction }} px-3 py-3"></td>{{-- payslip spacer --}}
                     </tr>
                 </tfoot>
             @endif

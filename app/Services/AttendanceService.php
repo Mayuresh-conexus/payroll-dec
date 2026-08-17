@@ -19,9 +19,11 @@ use Illuminate\Support\Facades\DB;
  */
 class AttendanceService
 {
-    /**
-     * Save (upsert) attendance + payroll snapshot for a daily-rate employee.
-     */
+    public function __construct(
+        private BankHolidayService $bankHolidays,
+        private LeaveService $leaves
+    ) {}
+
     /** Weekday keys in ISO order, so the index is the offset from the week's Monday. */
     private const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
@@ -56,6 +58,9 @@ class AttendanceService
         return [$primaryMap, $extraMap];
     }
 
+    /**
+     * Save (upsert) attendance + payroll snapshot for a daily-rate employee.
+     */
     public function saveDailyEmployee(
         int $employeeId,
         array $row,
@@ -101,7 +106,21 @@ class AttendanceService
         $weeklyAmount = (float) $payableDays * (float) $appliedDaily;
         $addons = $this->buildDailyAddons($payableOvertimeMap, $weekStart);
         $addonsTotal = array_sum(array_map(fn ($a) => (float) ($a['amount'] ?? 0), $addons));
-        $gross = $weeklyAmount + $addonsTotal;
+
+        // Bank holidays are cleared once a month, in the week holding the month's
+        // last day, so an ordinary week settles nothing. Only the cash share counts
+        // as earnings — the bank share rides alongside as its own transfer.
+        [$bhAmount, $bhCash, $bhBank, $bhPercent] = $employee
+            ? $this->bankHolidays->settlementFor($employee, $year, $week)
+            : [0.0, 0.0, 0.0, 0.0];
+
+        // Leave is paid like the days it replaces, so it joins the week's earnings
+        // rather than sitting outside them.
+        [$leaveDays, $leaveHours, $leaveAmount] = $employee
+            ? $this->leaves->weekPayFor($employee, $year, $week)
+            : [0.0, 0.0, 0.0];
+
+        $gross = $weeklyAmount + $addonsTotal + $bhCash + $leaveAmount;
         $bankAmountFix = (float) ($employee?->bank_transfer_fix_amount ?? 0);
 
         // Advance balance: only advance_given is auto-computed here.
@@ -131,6 +150,13 @@ class AttendanceService
                 'note' => null,
                 'overtime_amount' => $payableOvertime,
                 'overtime_hours' => null,
+                'bh_amount' => $bhAmount,
+                'bh_cash' => $bhCash,
+                'bh_bank' => $bhBank,
+                'applied_bh_bank_percent' => $bhPercent,
+                'leave_days' => $leaveDays,
+                'leave_hours' => $leaveHours,
+                'leave_amount' => $leaveAmount,
                 'advance_given' => $advanceGiven,
                 'advance_recovered' => 0,
                 'advance_balance' => $advanceBalance,
@@ -187,7 +213,20 @@ class AttendanceService
         $weeklyAmount = (float) $payableRegularHours * (float) $appliedHourly;
         $addons = $this->buildHourlyAddons($payableOtMap, $appliedHourly, $weekStart);
         $addonsTotal = array_sum(array_map(fn ($a) => (float) ($a['amount'] ?? 0), $addons));
-        $gross = $weeklyAmount + $addonsTotal;
+
+        // Same monthly settlement as daily staff; every hour worked on a holiday is
+        // doubled, overtime included.
+        [$bhAmount, $bhCash, $bhBank, $bhPercent] = $employee
+            ? $this->bankHolidays->settlementFor($employee, $year, $week)
+            : [0.0, 0.0, 0.0, 0.0];
+
+        // Leave is paid like the hours it replaces, so it joins the week's earnings
+        // rather than sitting outside them.
+        [$leaveDays, $leaveHours, $leaveAmount] = $employee
+            ? $this->leaves->weekPayFor($employee, $year, $week)
+            : [0.0, 0.0, 0.0];
+
+        $gross = $weeklyAmount + $addonsTotal + $bhCash + $leaveAmount;
         $bankAmountFix = (float) ($employee?->bank_transfer_fix_amount ?? 0);
 
         // Advance balance: only advance_given is auto-computed here.
@@ -216,6 +255,13 @@ class AttendanceService
                 'applied_hours_per_day' => $employee?->hours_per_day ?? null,
                 'overtime_hours' => $payableOtTotal,
                 'overtime_amount' => null,
+                'bh_amount' => $bhAmount,
+                'bh_cash' => $bhCash,
+                'bh_bank' => $bhBank,
+                'applied_bh_bank_percent' => $bhPercent,
+                'leave_days' => $leaveDays,
+                'leave_hours' => $leaveHours,
+                'leave_amount' => $leaveAmount,
                 'advance_given' => $advanceGiven,
                 'advance_recovered' => 0,
                 'advance_balance' => $advanceBalance,
@@ -300,7 +346,15 @@ class AttendanceService
 
             $h = $present ? (($inputH !== null) ? $inputH : $defaultHours) : 0.0;
             $extraOt = ($h > $defaultHours) ? ($h - $defaultHours) : 0.0;
-            $o = $inputO + $extraOt;
+
+            // Overtime is the part of the day above the norm, so it is derived from
+            // the hours rather than added to whatever OT came in. Adding them made
+            // the value depend on how many times the week had been saved: payroll's
+            // "refresh week" feeds the stored ot_map back in, so a 10 h day on an
+            // 8 h norm drifted 2 -> 4 -> 6 OT while the hours never changed. max()
+            // keeps an explicitly supplied OT that exceeds the derived amount
+            // (an importer may record it) without ever compounding.
+            $o = max($inputO, $extraOt);
 
             $hoursNorm[$d] = $h;
             $otNorm[$d] = $o;

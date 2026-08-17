@@ -41,6 +41,12 @@ class PayrollService
         $rows = collect();
         $weekStart = Carbon::now()->setISODate($year, $week, 1);
 
+        // Bank holidays clear once a month; an ordinary week settles nothing.
+        $bankHolidays = app(BankHolidayService::class);
+
+        // Paid leave is earned in the week it is taken, like worked time.
+        $leaves = app(LeaveService::class);
+
         foreach ($dailyAtt as $att) {
             $employee = $att->employee;
             if (! $employee) {
@@ -70,7 +76,14 @@ class PayrollService
                 }
             }
             $bankAmountFix = $employee->bank_transfer_fix_amount ?? 0;
-            $gross = ($presentDays * $dailyRate) + $overtimeAmount;
+
+            // Mirror of AttendanceService: this method derives gross independently,
+            // so a settlement known only to the other service would vanish here.
+            // Only the cash share is earnings; the bank share is its own transfer.
+            [$bhAmount, $bhCash, $bhBank] = $bankHolidays->settlementFor($employee, $year, $week);
+            [$leaveDays, $leaveHours, $leaveAmount] = $leaves->weekPayFor($employee, $year, $week);
+
+            $gross = ($presentDays * $dailyRate) + $overtimeAmount + $bhCash + $leaveAmount;
             $sunPresent = ! empty($att->days_map['sun']) && (int) $att->days_map['sun'] === 1;
 
             $rows->push([
@@ -83,6 +96,12 @@ class PayrollService
                 'total_hours' => null,
                 'sun_hours' => null,
                 'overtime_amount' => $overtimeAmount,
+                'bh_amount' => $bhAmount,
+                'bh_cash' => $bhCash,
+                'bh_bank' => $bhBank,
+                'leave_days' => $leaveDays,
+                'leave_hours' => $leaveHours,
+                'leave_amount' => $leaveAmount,
                 'gross_amount' => $gross,
                 'cash_amount' => 0,
                 'bank_amount' => $bankAmountFix,
@@ -119,8 +138,12 @@ class PayrollService
             }
 
             $rate = $employee->rateAt($weekStart, 'hourly_rate') ?? $employee->hourly_rate ?? 0;
-            $gross = ($hours * $rate) + ($ot * $rate);
             $bankAmountFix = $employee->bank_transfer_fix_amount ?? 0;
+
+            [$bhAmount, $bhCash, $bhBank] = $bankHolidays->settlementFor($employee, $year, $week);
+            [$leaveDays, $leaveHours, $leaveAmount] = $leaves->weekPayFor($employee, $year, $week);
+
+            $gross = ($hours * $rate) + ($ot * $rate) + $bhCash + $leaveAmount;
             $sunHours = ! empty($att->hours_map['sun']) ? (float) $att->hours_map['sun'] : 0;
 
             $rows->push([
@@ -133,6 +156,12 @@ class PayrollService
                 'sun_hours' => $sunHours,
                 'total_hours' => $hours,
                 'overtime_hours' => $ot,
+                'bh_amount' => $bhAmount,
+                'bh_cash' => $bhCash,
+                'bh_bank' => $bhBank,
+                'leave_days' => $leaveDays,
+                'leave_hours' => $leaveHours,
+                'leave_amount' => $leaveAmount,
                 'gross_amount' => $gross,
                 'cash_amount' => 0,
                 'bank_amount' => $bankAmountFix,
@@ -255,6 +284,19 @@ class PayrollService
 
                 $empBankFix = (float) ($employee->bank_transfer_fix_amount ?? 0);
 
+                // The bank-holiday bank share is a separate transfer, so bank_amount
+                // stays the employee's fixed figure and the saved/unsaved test below
+                // is unaffected by it.
+                $bhAmount = (float) ($item->bh_amount ?? 0);
+                $bhCash = (float) ($item->bh_cash ?? 0);
+                $bhBank = (float) ($item->bh_bank ?? 0);
+
+                // Leave pay is already inside gross_amount/weekly_amount — these
+                // are carried through only so the breakdown survives a save.
+                $leaveDays = (float) ($item->leave_days ?? 0);
+                $leaveHours = (float) ($item->leave_hours ?? 0);
+                $leaveAmount = (float) ($item->leave_amount ?? 0);
+
                 if ($trusted) {
                     $gross = max(0, (float) ($item->gross_amount ?? 0));
                     $itemCash = (float) ($item->cash_amount ?? 0);
@@ -287,6 +329,12 @@ class PayrollService
                         'present_days' => $item->present_days,
                         'total_hours' => $item->total_hours,
                         ($isDaily ? 'overtime_amount' : 'overtime_hours') => $isDaily ? $item->overtime_amount : $item->overtime_hours,
+                        'bh_amount' => $bhAmount,
+                        'bh_cash' => $bhCash,
+                        'bh_bank' => $bhBank,
+                        'leave_days' => $leaveDays,
+                        'leave_hours' => $leaveHours,
+                        'leave_amount' => $leaveAmount,
                         'sun_hours' => $rowsByKey[$key]['sun_hours'] ?? 0,
                         'gross_amount' => $gross,
                         'cash_amount' => $cash,
@@ -321,6 +369,12 @@ class PayrollService
                     $row['bank_amount'] = ($cash > 0) ? $bankAmount : $empBankFix;
                     $row['bank_transfer_fix_amount'] = $empBankFix;
                     $row['weekly_amount'] = $weeklyAmount;
+                    $row['bh_amount'] = $bhAmount;
+                    $row['bh_cash'] = $bhCash;
+                    $row['bh_bank'] = $bhBank;
+                    $row['leave_days'] = $leaveDays;
+                    $row['leave_hours'] = $leaveHours;
+                    $row['leave_amount'] = $leaveAmount;
                     $row['addons'] = $addons;
                     $row['prev_advance_balance'] = $prevAdvanceBalance;
                     $row['advance_balance'] = (float) ($item->advance_balance ?? 0);
@@ -358,6 +412,12 @@ class PayrollService
                         'present_days' => $item->present_days,
                         'total_hours' => $item->total_hours,
                         ($isDaily ? 'overtime_amount' : 'overtime_hours') => $item->overtime_hours,
+                        'bh_amount' => $bhAmount,
+                        'bh_cash' => $bhCash,
+                        'bh_bank' => $bhBank,
+                        'leave_days' => $leaveDays,
+                        'leave_hours' => $leaveHours,
+                        'leave_amount' => $leaveAmount,
                         'sun_hours' => 0,
                         'gross_amount' => $gross,
                         'cash_amount' => $cash,
@@ -376,7 +436,7 @@ class PayrollService
             // No payroll run yet — attendance-only rows always start unsaved
             $rowsByKey = $rowsByKey->map(function (array $row) {
                 $gross = (float) ($row['gross_amount'] ?? 0);
-                $bankFix = (float) ($row['bank_amount'] ?? 0); // pre-set to bank_transfer_fix_amount
+                $bankFix = (float) ($row['bank_transfer_fix_amount'] ?? 0);
                 $weeklyAmount = (float) ($row['weekly_amount'] ?? $gross);
                 $cash = max(0, $weeklyAmount - $bankFix);
                 $bankAmount = min($bankFix, $gross);

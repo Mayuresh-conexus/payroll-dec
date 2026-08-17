@@ -71,11 +71,28 @@
                     <tr class="text-[10px] font-medium uppercase tracking-wider text-slate-500 border-b border-slate-200">
                         <th colspan="4" class="bg-white"></th>
                         @foreach (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as $d)
-                            @php $isToday = isset($todayKey) && $todayKey === $d; @endphp
-                            <th class="w-12 px-2 py-2 text-center bg-white border-l border-slate-100">
+                            @php
+                                $isToday = isset($todayKey) && $todayKey === $d;
+                                $holidayName = $holidayMap[$d] ?? null;
+                            @endphp
+                            <th class="w-12 px-2 py-2 text-center border-l border-slate-100 {{ $holidayName ? 'bg-violet-50/70' : 'bg-white' }}">
                                 <span class="inline-flex items-center justify-center rounded-md px-2 py-1 {{ $isToday ? 'bg-[#fae4e4] text-[#9e2a2b] font-semibold' : 'bg-transparent' }}">
                                     {{ strtoupper($d) }}
                                 </span>
+
+                                @if ($holidayName)
+                                    {{-- Multi-line hover, matching the Sunday note below: the global
+                                         data-tooltip style is single-line and clips on the header row. --}}
+                                    <span class="relative mt-1 flex items-center justify-center group">
+                                        <span class="cursor-help inline-flex items-center px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold tracking-wide">BH</span>
+                                        <span class="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-1 hidden group-hover:block z-50
+                                                     max-w-[200px] whitespace-normal break-words rounded-md bg-slate-900 px-2 py-1 w-max
+                                                     text-[10px] leading-snug text-white shadow-lg text-left normal-case tracking-normal">
+                                            <span class="font-semibold">{{ $holidayName }}</span><br>
+                                            Bank holiday — anyone who works today is paid double.
+                                        </span>
+                                    </span>
+                                @endif
                             </th>
                         @endforeach
                         <th colspan="2" class="bg-white border-l border-slate-100"></th>
@@ -124,6 +141,7 @@
                                     // Days on/after the deactivation date are not employed days:
                                     // render them locked so nothing can be marked or submitted.
                                     $dayIsAfterLeaving = ! $employee->isPaidOn($monday->copy()->addDays($dayOffset));
+                                    $isHoliday = isset($holidayMap[$d]);
                                 @endphp
 
                                 @if ($dayIsAfterLeaving)
@@ -136,7 +154,7 @@
                                     @continue
                                 @endif
 
-                                <td class="px-1 py-1 align-top text-center">
+                                <td class="px-1 py-1 align-top text-center {{ $isHoliday ? 'bg-violet-50/70' : '' }}">
                                     @php
                                         $isWeekendOff = $defaultWorkingDays == 6
                                             ? $d === 'sun'
@@ -153,10 +171,12 @@
                                             $checked = (int) old($dayKey, $daysMap[$d] ?? ($isWeekendOff ? 0 : 1));
                                         }
                                         $oVal = old("attendance.{$employee->id}.overtime_map.{$d}", $dOtMap[$d] ?? 0);
+                                        $leave = $leaveMap[$employee->id][$d] ?? null;
                                     @endphp
 
                                     <div data-day="{{ $d }}" x-data="{
                                         present: {{ $checked ? 'true' : 'false' }},
+                                        onLeave: {{ $leave ? 'true' : 'false' }},
                                         inputName: 'attendance[{{ $employee->id }}][days][{{ $d }}]',
                                         hoursName: 'attendance[{{ $employee->id }}][hours_map][{{ $d }}]',
                                         hoursVal: {{ $checked ? $hHours[$d] ?? $defaultHourValue : 0 }}
@@ -164,9 +184,10 @@
 
                                         <button type="button"
                                             @click="present = !present; if (present) { hoursVal = hoursVal > 0 ? hoursVal : {{ $defaultHours }} } else { hoursVal = 0 }"
-                                            :class="present ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'"
-                                            class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold shadow-sm transition-colors duration-150">
-                                            <span x-text="present ? 'P' : 'A'"></span>
+                                            :class="present ? 'bg-emerald-500 text-white' : (onLeave ? 'bg-sky-500 text-white' : 'bg-red-500 text-white')"
+                                            class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold shadow-sm transition-colors duration-150"
+                                            @if ($leave) title="On leave{{ $leave->reason ? ' — '.$leave->reason : '' }}. Click to mark present if they worked instead." @endif>
+                                            <span x-text="present ? 'P' : (onLeave ? 'L' : 'A')"></span>
                                         </button>
 
                                         <input type="hidden" :name="inputName" :value="present ? 1 : 0">

@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreAttendanceRequest;
 use App\Models\DailyRateAttendance;
 use App\Models\Employee;
+use App\Models\Holiday;
 use App\Models\HourlyAttendance;
 use App\Models\PayrollRun;
 use App\Services\AttendanceService;
+use App\Services\LeaveService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -62,6 +64,16 @@ class AttendanceController extends Controller
             $dayDates[$k] = strtoupper($monday->copy()->addDays($i)->format('d M'));
         }
 
+        // Bank holidays apply to everyone, so the grid marks the whole column
+        // rather than badging each employee's cell.
+        $holidayMap = Holiday::mapForWeek($monday);
+
+        // Leave is per employee, so each day cell needs its own answer rather
+        // than a single column-wide marker.
+        $leaveMap = app(LeaveService::class)->weekLeaveMapFor(
+            $dailyEmployees->merge($hourlyEmployees), (int) $year, (int) $week
+        );
+
         // compute a todayKey (mon..sun) when the selected year/week match today's ISO week
         $todayKey = null;
         $today = Carbon::now();
@@ -114,6 +126,8 @@ class AttendanceController extends Controller
             'tab',
             'monday',
             'dayDates',
+            'holidayMap',
+            'leaveMap',
             'todayKey',
             'dailyEmployees',
             'hourlyEmployees',

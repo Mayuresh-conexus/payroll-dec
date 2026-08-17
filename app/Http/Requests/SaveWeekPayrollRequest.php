@@ -48,6 +48,12 @@ class SaveWeekPayrollRequest extends FormRequest
             'items.*.prev_advance_balance' => 'nullable|numeric|min:0',
             'items.*.bank_transfer_fix_amount' => 'nullable|numeric|min:0',
             'items.*.recover' => 'nullable|numeric|min:0',
+            'items.*.bh_amount' => 'nullable|numeric|min:0',
+            'items.*.bh_cash' => 'nullable|numeric|min:0',
+            'items.*.bh_bank' => 'nullable|numeric|min:0',
+            'items.*.leave_days' => 'nullable|numeric|min:0',
+            'items.*.leave_hours' => 'nullable|numeric|min:0',
+            'items.*.leave_amount' => 'nullable|numeric|min:0',
         ];
     }
 

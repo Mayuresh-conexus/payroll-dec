@@ -6,18 +6,20 @@ use App\Http\Requests\SaveWeekPayrollRequest;
 use App\Models\AuditLog;
 use App\Models\DailyRateAttendance;
 use App\Models\Employee;
+use App\Models\Holiday;
 use App\Models\HourlyAttendance;
 use App\Models\PayrollItem;
 use App\Models\PayrollRun;
 use App\Services\AttendanceService;
+use App\Services\BankHolidayService;
 use App\Services\PayrollService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Border;
-use PhpOffice\PhpSpreadsheet\Style\Color;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -57,9 +59,18 @@ class PayrollController extends Controller
                 ->get()
             : collect();
 
+        // Holidays clear once a month, so the BH columns only belong on the week
+        // that settles a month which actually had one.
+        $showBankHoliday = app(BankHolidayService::class)->monthHasHoliday($year, $week);
+
+        // The leave column only earns its place in a week where someone took some.
+        $showLeave = $rows->contains(fn (array $row): bool => (float) ($row['leave_amount'] ?? 0) > 0);
+
         return view('payroll.index', [
             'year' => $year,
             'week' => $week,
+            'showBankHoliday' => $showBankHoliday,
+            'showLeave' => $showLeave,
             'month' => $month,
             'run' => $run,
             'rows' => $rows,
@@ -138,6 +149,13 @@ class PayrollController extends Controller
                     'applied_daily_rate' => $emp ? ($emp->rateAt($weekStart, 'daily_rate') ?? $emp->daily_rate) : null,
                     'applied_hourly_rate' => $emp ? ($emp->rateAt($weekStart, 'hourly_rate') ?? $emp->hourly_rate) : null,
                     'applied_hours_per_day' => $emp ? ($emp->rateAt($weekStart, 'hours_per_day') ?? $emp->hours_per_day) : null,
+                    'bh_amount' => round((float) ($row['bh_amount'] ?? 0), 2),
+                    'bh_cash' => round((float) ($row['bh_cash'] ?? 0), 2),
+                    'bh_bank' => round((float) ($row['bh_bank'] ?? 0), 2),
+                    'applied_bh_bank_percent' => $emp?->bh_bank_percent,
+                    'leave_days' => round((float) ($row['leave_days'] ?? 0), 2),
+                    'leave_hours' => round((float) ($row['leave_hours'] ?? 0), 2),
+                    'leave_amount' => round((float) ($row['leave_amount'] ?? 0), 2),
                     'advance_given' => round($advanceGiven, 2),
                     'advance_recovered' => round($advanceRecovered, 2),
                     'advance_balance' => $advanceBalance,
@@ -232,9 +250,11 @@ class PayrollController extends Controller
             ->get();
 
         foreach ($hourlyAtts as $att) {
+            // Deliberately no ot_map: this is a recalculation, so overtime is
+            // re-derived from the logged hours. Passing the stored value back in
+            // would carry forward any figure a previous save had already inflated.
             $attService->saveHourlyEmployee($att->employee_id, [
                 'hours_map' => $att->hours_map ?? [],
-                'ot_map' => $att->ot_map ?? [],
                 'days' => [],
             ], $data['year'], $data['week'], (bool) ($att->locked ?? false));
         }
@@ -388,345 +408,513 @@ class PayrollController extends Controller
         return [$run, $rows, $dailyAttendance, $hourlyAttendance];
     }
 
-    public function exportWeekCsv(Request $request)
+    /**
+     * Column layout of the weekly sheet.
+     *
+     * Mirrors the workbook the client has kept by hand for years: an attendance
+     * block on the left, a red divider, then the pay block on the right, with the
+     * employee name repeated either side so a wide row stays readable.
+     *
+     * @var array<string, string>
+     */
+    /**
+     * Column letters for the weekly sheet.
+     *
+     * Bank-holiday pay clears once a month, so its two columns are only present
+     * on the settling week — and their absence shifts Comments and Check left.
+     *
+     * @return array<string, string>
+     */
+    private function weekSheetColumns(bool $withBankHoliday): array
+    {
+        $columns = [
+            'no' => 'A',
+            'name_left' => 'B',
+            'ot' => 'J',
+            'total_wd' => 'K',
+            'total_wh' => 'L',
+            'redline' => 'M',
+            'name_right' => 'N',
+            'rate' => 'O',
+            'total_weekly' => 'P',
+            'cash' => 'Q',
+            'bank_weekly' => 'R',
+            'bank_monthly' => 'S',
+        ];
+
+        $next = 'T';
+
+        if ($withBankHoliday) {
+            $columns['bh_cash'] = 'T';
+            $columns['bh_bank'] = 'U';
+            $next = 'V';
+        }
+
+        $columns['comments'] = $next;
+        $columns['check'] = chr(ord($next) + 1);
+
+        return $columns;
+    }
+
+    private const WEEK_SHEET_DAY_COLUMNS = ['C', 'D', 'E', 'F', 'G', 'H', 'I'];
+
+    private const WEEK_SHEET_DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+    /** Shared with the CLOSED day cells so the sheet uses one blue throughout. */
+    private const WEEK_SHEET_BLUE = 'FF0C4D90';
+
+    /**
+     * Heading fill and text colour per column, so a column is findable by colour
+     * on a row this wide. Anything unlisted falls back to grey.
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
+    private const WEEK_SHEET_HEADER_COLOURS = [
+        'no' => ['FF000000', 'FFFFFFFF'],
+        'name_left' => ['FF000000', 'FFFFFFFF'],
+        'name_right' => ['FF000000', 'FFFFFFFF'],
+        'ot' => ['FFDC2626', 'FFFFFFFF'],
+        'total_wd' => [self::WEEK_SHEET_BLUE, 'FFFFFFFF'],
+        'total_wh' => [self::WEEK_SHEET_BLUE, 'FFFFFFFF'],
+        'cash' => ['FFFFC000', 'FF000000'],
+        'check' => ['FFFFC000', 'FF000000'],
+        'bh_cash' => ['FF7C3AED', 'FFFFFFFF'],
+        'bh_bank' => ['FF7C3AED', 'FFFFFFFF'],
+    ];
+
+    private const WEEK_SHEET_HEADER_DEFAULT = ['FFD9D9D9', 'FF000000'];
+
+    public function exportWeekCsv(Request $request): StreamedResponse
     {
         $year = (int) $request->input('year', now()->year);
         $week = (int) $request->input('week', now()->weekOfYear);
 
         [$run, $rows, $dailyAttendance, $hourlyAttendance] = $this->resolveWeekExportData($year, $week);
-        $rowsByEmployee = $rows->keyBy(fn (array $r) => $r['employee']->id);
-
-        $dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        $itemsByEmployee = $run->items->keyBy('employee_id');
 
         $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle("Week {$week}");
 
-        // WEEK title row
-        $sheet->setCellValue('A1', 'WEEK '.$week.' - '.$year);
-        $sheet->mergeCells('A1:Q1');
-        $sheet->getRowDimension(1)->setRowHeight(22);
-
-        // background of title row (light slate)
-        $sheet->getStyle('A1:Q1')->getFill()
-            ->setFillType(Fill::FILL_SOLID)
-            ->getStartColor()->setARGB('FF14213D'); // E2E8F0 with FF prefix
-
-        // title font: bold, bigger, dark slate text
-        $sheet->getStyle('A1')->getFont()
-            ->setBold(true)
-            ->setSize(14)
-            ->getColor()->setARGB('FFFCA311'); // 0F172A with FF prefix
-
-        // center text
-        $sheet->getStyle('A1')->getAlignment()
-            ->setHorizontal('center')
-            ->setVertical('center');
-
-        // Row 2: dates above Mon Sun (D2 J2)
-        // ISO week Monday
         $monday = Carbon::now()->setISODate($year, $week, 1);
+        // Holidays clear once a month; the columns only belong on the settling week.
+        $showBankHoliday = app(BankHolidayService::class)->monthHasHoliday($year, $week);
+        $col = $this->weekSheetColumns($showBankHoliday);
 
-        $dateCols = ['D', 'E', 'F', 'G', 'H', 'I', 'J'];
+        // Bank holidays are the same for everyone, so resolve them once per sheet.
+        $holidayMap = Holiday::mapForWeek($monday);
 
-        foreach ($dateCols as $index => $col) {
-            $cell = $col.'2'; // <— target Row 2 only
+        $this->writeWeekSheetHeader($sheet, $week, $monday, $holidayMap, $col);
 
-            $date = $monday->copy()->addDays($index);
+        // Iterating the computed rows rather than $run->items keeps the sheet in the
+        // same employee-code order as the payroll page.
+        $rowIndex = 3;
+        $number = 1;
+        $totals = ['total_weekly' => 0.0, 'cash' => 0.0, 'bank_weekly' => 0.0, 'bank_monthly' => 0.0, 'bh_cash' => 0.0, 'bh_bank' => 0.0];
 
-            // Set date text
-            $sheet->setCellValue($cell, strtoupper($date->format('d M')));
-
-            // Text color black
-            $sheet->getStyle($cell)->getFont()
-                ->getColor()->setARGB('FF000000'); // must be ARGB with FF prefix
-
-            // Center alignment
-            $sheet->getStyle($cell)->getAlignment()
-                ->setHorizontal('center')
-                ->setVertical('center');
-        }
-
-        // Center the date row
-        $sheet->getStyle('D2:J2')->getAlignment()
-            ->setHorizontal('center')
-            ->setVertical('center');
-        $sheet->getStyle('D2:J2')->getFont()
-            ->setBold(false)
-            ->setSize(10)
-            ->getColor()->setARGB('4B5563'); // grayish text
-
-        // Headings row now on row 3
-        $headers = [
-            'A3' => 'Employee Code',
-            'B3' => 'Employee Name',
-            'C3' => 'Type',
-            'D3' => 'Mon',
-            'E3' => 'Tue',
-            'F3' => 'Wed',
-            'G3' => 'Thu',
-            'H3' => 'Fri',
-            'I3' => 'Sat',
-            'J3' => 'Sun',
-            'K3' => 'Present Days',
-            'L3' => 'Total Hours',
-            'M3' => 'Overtime',
-            'N3' => 'Weekly Total',
-            'O3' => 'Cash',
-            'P3' => 'Bank',
-            'Q3' => 'Arrears',
-        ];
-
-        // write header labels
-        foreach ($headers as $cell => $label) {
-            $sheet->setCellValue($cell, $label);
-            $sheet->getStyle($cell)->getFont()
-                ->setBold(true);
-
-            // merge row 3 and row 4 for each column
-            $col = preg_replace('/\d/', '', $cell); // extract column letter(s)
-            $sheet->mergeCells("{$col}3:{$col}4");
-        }
-
-        // center alignment for merged headers
-        $sheet->getStyle('A3:Q4')->getAlignment()
-            ->setHorizontal('center')
-            ->setVertical('center');
-
-        // Employee headings (A3:C3) black background, white text
-        $sheet->getStyle('A3:C3')->getFill()
-            ->setFillType(Fill::FILL_SOLID)
-            ->getStartColor()->setARGB('000000');
-        $sheet->getStyle('A3:C3')->getFont()->getColor()->setARGB(Color::COLOR_WHITE);
-
-        // Day headings (D3:J3) light gray background, black text
-        $sheet->getStyle('D3:J3')->getFill()
-            ->setFillType(Fill::FILL_SOLID)
-            ->getStartColor()->setARGB('E5E7EB');
-        $sheet->getStyle('D3:J3')->getFont()->getColor()->setARGB('000000');
-
-        // Rest headings (K3:Q3) dark green background, white text
-        $sheet->getStyle('K3:Q3')->getFill()
-            ->setFillType(Fill::FILL_SOLID)
-            ->getStartColor()->setARGB('065F46');
-        $sheet->getStyle('K3:Q3')->getFont()->getColor()->setARGB(Color::COLOR_WHITE);
-
-        // center headings text
-        $sheet->getStyle('A3:Q3')->getAlignment()
-            ->setHorizontal('center')
-            ->setVertical('center');
-
-        // data starts from row 4
-        $rowIndex = 5;
-
-        foreach ($run->items as $item) {
-            $emp = $item->employee;
-            if (! $emp) {
+        foreach ($rows as $row) {
+            $employee = $row['employee'];
+            if (! $employee) {
                 continue;
             }
 
-            $row = $rowsByEmployee->get($emp->id);
+            $item = $itemsByEmployee->get($employee->id);
+            $isDaily = ($row['type'] ?? null) === 'daily_rate';
 
-            // default days map: Mon to Sat present, Sun off
-            $daysMap = [
-                'mon' => 1,
-                'tue' => 1,
-                'wed' => 1,
-                'thu' => 1,
-                'fri' => 1,
-                'sat' => 1,
-                'sun' => 0,
-            ];
+            $sheet->setCellValue($col['no'].$rowIndex, $number);
+            $sheet->setCellValue($col['name_left'].$rowIndex, $employee->name);
+            $sheet->setCellValue($col['name_right'].$rowIndex, $employee->name);
 
-            if ($item->type === 'daily_rate') {
-                $att = $dailyAttendance[$item->employee_id] ?? null;
-                if ($att && is_array($att->days_map)) {
-                    $daysMap = array_merge($daysMap, $att->days_map);
-                }
+            $this->writeWeekSheetDays($sheet, $rowIndex, $row, $employee, $monday, $dailyAttendance, $hourlyAttendance, $holidayMap);
+
+            // OT carries the unit each pay type is measured in: a money amount for
+            // daily staff (their overtime is entered as cash) and hours for hourly.
+            // Counts of hours and days use General so a whole number prints as "50",
+            // not "50." — Excel renders a trailing separator for 0.## formats.
+            $overtime = $isDaily
+                ? (float) ($row['overtime_amount'] ?? $item?->overtime_amount ?? 0)
+                : (float) ($row['overtime_hours'] ?? $item?->overtime_hours ?? 0);
+            $this->setWeekSheetNumber($sheet, $col['ot'].$rowIndex, $overtime, $isDaily ? '#,##0.00' : 'General');
+
+            [$workedDays, $workedHours] = $this->weekSheetTotals($row, $employee, $dailyAttendance, $hourlyAttendance);
+            $this->setWeekSheetNumber($sheet, $col['total_wd'].$rowIndex, $workedDays, 'General');
+
+            if ($isDaily) {
+                $sheet->setCellValue($col['total_wh'].$rowIndex, '-');
             } else {
-                $daysMap = [
-                    'mon' => null,
-                    'tue' => null,
-                    'wed' => null,
-                    'thu' => null,
-                    'fri' => null,
-                    'sat' => null,
-                    'sun' => null,
-                ];
+                $this->setWeekSheetNumber($sheet, $col['total_wh'].$rowIndex, $workedHours, 'General');
             }
 
-            // base values
-            $sheet->setCellValue("A{$rowIndex}", $emp->employee_code);
-            $sheet->setCellValue("B{$rowIndex}", $emp->name);
-            $sheet->setCellValue("C{$rowIndex}", $item->type === 'daily_rate' ? 'Daily' : 'Hourly');
-
-            // row default style
-            $sheet->getStyle("A{$rowIndex}:Q{$rowIndex}")->getFill()
+            // The three summary columns carry the same blue down the sheet, so the
+            // totals read as one block against the day-by-day detail on their left.
+            $summaryRange = "{$col['ot']}{$rowIndex}:{$col['total_wh']}{$rowIndex}";
+            $sheet->getStyle($summaryRange)->getFill()
                 ->setFillType(Fill::FILL_SOLID)
-                ->getStartColor()->setARGB('FFFFFF');
-            $sheet->getStyle("A{$rowIndex}:Q{$rowIndex}")->getFont()
-                ->getColor()->setARGB(Color::COLOR_BLACK);
+                ->getStartColor()->setARGB(self::WEEK_SHEET_BLUE);
+            $sheet->getStyle($summaryRange)->getFont()->setBold(true)->getColor()->setARGB('FFFFFFFF');
 
-            // day wise values with IN / OFF / CLOSED and special colors
-            $col = 'D';
-            foreach ($dayKeys as $key) {
-                $val = $daysMap[$key] ?? null;
-                $cell = "{$col}{$rowIndex}";
+            $rate = (float) ($row['rate'] ?? ($isDaily ? $employee->daily_rate : $employee->hourly_rate) ?? 0);
+            $totalWeekly = (float) ($row['weekly_amount'] ?? $item?->weekly_amount ?? 0);
+            $cash = (float) ($row['cash_amount'] ?? $item?->cash_amount ?? 0);
+            $bankWeekly = (float) ($row['bank_amount'] ?? $item?->bank_amount ?? 0);
 
-                if ($item->type !== 'daily_rate') {
-                    // hourly: show hours + ot per day if available
-                    $hAtt = $hourlyAttendance[$item->employee_id] ?? null;
-                    $hours = null;
-                    $otDay = null;
+            $this->setWeekSheetNumber($sheet, $col['rate'].$rowIndex, $rate, '#,##0.00');
+            $this->setWeekSheetNumber($sheet, $col['total_weekly'].$rowIndex, $totalWeekly, '#,##0.00');
+            $this->setWeekSheetNumber($sheet, $col['cash'].$rowIndex, $cash, '#,##0.00');
+            $this->setWeekSheetNumber($sheet, $col['bank_weekly'].$rowIndex, $bankWeekly, '#,##0.00');
 
-                    if ($hAtt && is_array($hAtt->hours_map)) {
-                        $hours = isset($hAtt->hours_map[$key]) ? $hAtt->hours_map[$key] : null;
-                    }
-                    if ($hAtt && is_array($hAtt->ot_map)) {
-                        $otDay = isset($hAtt->ot_map[$key]) ? $hAtt->ot_map[$key] : null;
-                    }
-
-                    if (($hours === null || $hours === 0) && ($otDay === null || $otDay == 0) && $key !== 'sun') {
-                        $sheet->setCellValue($cell, '-');
-                    } else {
-                        $display = (float) ($hours ?? 0);
-                        if ($otDay && (float) $otDay > 0) {
-                            $display = $display - $otDay.' + '.((float) $otDay);
-                        }
-                        if ($key === 'sun' && $display <= 0) {
-                            $sheet->setCellValue($cell, 'CLOSED');
-                            $sheet->getStyle($cell)->getFill()
-                                ->setFillType(Fill::FILL_SOLID)
-                                ->getStartColor()->setARGB('0c4d90'); // dark sky blue
-                            $sheet->getStyle($cell)->getFont()
-                                ->setBold(true)
-                                ->getColor()->setARGB(Color::COLOR_WHITE);
-                            $sheet->getStyle($cell)->getAlignment()
-                                ->setHorizontal('center')
-                                ->setVertical('center');
-                        } else {
-                            $sheet->setCellValue($cell, $display);
-                        }
-                    }
-
-                    $sheet->getStyle($cell)->getAlignment()
-                        ->setHorizontal('center')
-                        ->setVertical('center');
-                } else {
-                    if ($key === 'sun' && $val === 0) {
-                        $sheet->setCellValue($cell, 'CLOSED');
-                        $sheet->getStyle($cell)->getFill()
-                            ->setFillType(Fill::FILL_SOLID)
-                            ->getStartColor()->setARGB('0c4d90'); // dark sky blue
-                        $sheet->getStyle($cell)->getFont()
-                            ->setBold(true)
-                            ->getColor()->setARGB(Color::COLOR_WHITE);
-                        $sheet->getStyle($cell)->getAlignment()
-                            ->setHorizontal('center')
-                            ->setVertical('center');
-                    } else {
-                        $isIn = (bool) $val;
-                        $display = $isIn ? 'IN' : 'OFF';
-
-                        // if IN and there is a daily overtime amount for this day, append it
-                        if ($isIn && $att && is_array($att->overtime_map) && isset($att->overtime_map[$key]) && (float) $att->overtime_map[$key] > 0) {
-                            $display = $display.' + '.number_format((float) $att->overtime_map[$key], 2);
-                        }
-
-                        $sheet->getStyle($cell)->getFont()
-                            ->setBold(true);
-                        $sheet->getStyle($cell)->getAlignment()
-                            ->setHorizontal('center')
-                            ->setVertical('center');
-                        $sheet->setCellValue($cell, $display);
-
-                        if (! $isIn) {
-                            $sheet->getStyle($cell)->getFont()
-                                ->setBold(true)
-                                ->getColor()->setARGB('DC2626'); // red
-                            $sheet->getStyle($cell)->getAlignment()
-                                ->setHorizontal('center')
-                                ->setVertical('center');
-                        }
-                    }
-                }
-
-                $col++;
-            }
-
-            // attendance + payment columns — sourced from the PayrollService-computed
-            // $row (matches what the web page displays), not the raw $item, since
-            // $item->cash_amount/bank_amount can still hold AttendanceService's
-            // placeholder values (0 / bank_transfer_fix_amount) for a week that was
-            // never explicitly finalized via "Save Weekly Payroll".
-            $val = fn ($v) => ($v === null || $v === '') ? '-' : $v;
-
-            $presentDays = $row['present_days'] ?? $item->present_days;
-            $totalHours = $row['total_hours'] ?? $item->total_hours;
-            $overtimeAmount = $row['overtime_amount'] ?? $item->overtime_amount;
-            $overtimeHours = $row['overtime_hours'] ?? $item->overtime_hours;
-            $weeklyAmount = $row['weekly_amount'] ?? $item->weekly_amount;
-            $cashAmount = $row['cash_amount'] ?? $item->cash_amount;
-            $bankAmount = $row['bank_amount'] ?? $item->bank_amount;
-            $arrears = $row['arrears'] ?? 0;
-
-            $sheet->setCellValue("K{$rowIndex}", $val($presentDays));
-
-            // Total hours column (L): for hourly show "normal [+ OT]" string, for daily keep dash
-            if ($item->type === 'hourly') {
-                $normal = $totalHours ?? 0;
-                $ot = $overtimeHours ?? 0;
-                if ($ot && $ot > 0) {
-                    $hoursLabel = $normal.' + '.$ot.' hr';
-                } else {
-                    $hoursLabel = $normal.' hrs';
-                }
-                $sheet->setCellValue("L{$rowIndex}", $val($hoursLabel));
+            // Bank Monthly annualises the fixed weekly transfer (x52/12). Only the
+            // daily-rate staff are on a standing order, so hourly rows stay blank —
+            // their bank figure moves with the hours and has no monthly equivalent.
+            $bankMonthly = 0.0;
+            if ($isDaily && $bankWeekly != 0.0) {
+                $bankMonthly = round($bankWeekly * 52 / 12, 2);
+                $this->setWeekSheetNumber($sheet, $col['bank_monthly'].$rowIndex, $bankMonthly, '#,##0.00');
             } else {
-                $sheet->setCellValue("L{$rowIndex}", $val('-'));
+                $sheet->setCellValue($col['bank_monthly'].$rowIndex, '-');
             }
 
-            // Overtime column (M): daily uses overtime_amount (currency/amount), hourly uses overtime_hours
-            if ($item->type === 'daily_rate') {
-                $sheet->setCellValue("M{$rowIndex}", $val(number_format((float) ($overtimeAmount ?? 0), 2)));
+            // Bank-holiday double pay for the month, cleared in this week. The cash
+            // share sits inside CASH; the bank share is a transfer of its own.
+            $bhCash = $showBankHoliday ? (float) ($row['bh_cash'] ?? 0) : 0.0;
+            $bhBank = $showBankHoliday ? (float) ($row['bh_bank'] ?? 0) : 0.0;
+
+            if (! $showBankHoliday) {
+                // no BH columns on this sheet
+            } elseif ($bhCash > 0 || $bhBank > 0) {
+                $this->setWeekSheetNumber($sheet, $col['bh_cash'].$rowIndex, $bhCash, '#,##0.00');
+                $this->setWeekSheetNumber($sheet, $col['bh_bank'].$rowIndex, $bhBank, '#,##0.00');
             } else {
-                $rate = $row['rate'] ?? $emp->hourly_rate ?? 0;
-                $sheet->setCellValue("M{$rowIndex}", $val(number_format((float) ($overtimeHours ?? 0) * $rate, 2)));
+                $sheet->setCellValue($col['bh_cash'].$rowIndex, '-');
+                $sheet->setCellValue($col['bh_bank'].$rowIndex, '-');
+                $sheet->getStyle("{$col['bh_cash']}{$rowIndex}:{$col['bh_bank']}{$rowIndex}")
+                    ->getAlignment()->setHorizontal('center');
             }
 
-            $sheet->setCellValue("N{$rowIndex}", $val($weeklyAmount));
-            $sheet->setCellValue("O{$rowIndex}", $val($cashAmount));
-            $sheet->setCellValue("P{$rowIndex}", $val($bankAmount));
-            $sheet->setCellValue("Q{$rowIndex}", $val(number_format((float) $arrears, 2)));
+            $sheet->setCellValue($col['comments'].$rowIndex, $item?->note ?? '');
+            $this->writeWeekSheetCheckCell($sheet, $col['check'].$rowIndex);
 
-            // center align
-            $sheet->getStyle("K{$rowIndex}:Q{$rowIndex}")
-                ->getAlignment()
-                ->setHorizontal('center')
-                ->setVertical('center');
+            $totals['total_weekly'] += $totalWeekly;
+            $totals['cash'] += $cash;
+            $totals['bank_weekly'] += $bankWeekly;
+            $totals['bank_monthly'] += $bankMonthly;
+            $totals['bh_cash'] += $bhCash;
+            $totals['bh_bank'] += $bhBank;
+
+            $sheet->getStyle($col['no'].$rowIndex)->getAlignment()->setHorizontal('center');
+            $sheet->getStyle("{$col['ot']}{$rowIndex}:{$col['total_wh']}{$rowIndex}")
+                ->getAlignment()->setHorizontal('center');
 
             $rowIndex++;
+            $number++;
         }
 
-        // auto width
-        foreach (range('A', 'Q') as $col) {
-            $sheet->getColumnDimension($col)->setAutoSize(true);
-        }
-
-        // thin borders around everything used
-        $lastRow = $rowIndex - 1;
-        $sheet->getStyle("A1:Q{$lastRow}")
-            ->getBorders()
-            ->getAllBorders()
-            ->setBorderStyle(Border::BORDER_THIN);
+        $this->writeWeekSheetTotals($sheet, $rowIndex, $totals, $col);
+        $this->applyWeekSheetLayout($sheet, $rowIndex, $col);
 
         $fileName = "payroll_week_{$week}_{$year}.xlsx";
         $writer = new Xlsx($spreadsheet);
 
-        return response()->streamDownload(function () use ($writer) {
+        return response()->streamDownload(function () use ($writer): void {
             $writer->save('php://output');
         }, $fileName, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
+    }
+
+    /**
+     * Two-row banner: WEEK n and the dates on top, field names underneath.
+     */
+    private function writeWeekSheetHeader(Worksheet $sheet, int $week, Carbon $monday, array $holidayMap, array $col): void
+    {
+
+        $sheet->setCellValue($col['name_left'].'1', 'WEEK '.$week);
+        $sheet->setCellValue($col['name_left'].'2', 'Employee Name');
+        $sheet->setCellValue($col['name_right'].'1', 'WEEK '.$week);
+        $sheet->setCellValue($col['name_right'].'2', 'Employee Name');
+
+        foreach (self::WEEK_SHEET_DAY_COLUMNS as $index => $letter) {
+            $date = $monday->copy()->addDays($index);
+            $dayKey = self::WEEK_SHEET_DAY_KEYS[$index];
+            $sheet->setCellValue($letter.'1', $date->format('d-M'));
+
+            if (isset($holidayMap[$dayKey])) {
+                $sheet->setCellValue($letter.'2', $date->format('D').' · BH');
+                $sheet->getComment($letter.'2')->getText()->createTextRun($holidayMap[$dayKey]);
+            } else {
+                $sheet->setCellValue($letter.'2', $date->format('D'));
+            }
+        }
+
+        // Everything without a date above it spans both header rows.
+        $spanning = [
+            $col['no'] => 'NO',
+            $col['ot'] => 'OT',
+            $col['total_wd'] => 'Total WD',
+            $col['total_wh'] => 'Total WH',
+            $col['redline'] => '',
+            $col['rate'] => 'Rate',
+            $col['total_weekly'] => 'Total Weekly',
+            $col['cash'] => 'CASH',
+            $col['bank_weekly'] => 'Bank Weekly',
+            $col['bank_monthly'] => 'Bank Monthly',
+        ];
+
+        if (isset($col['bh_cash'])) {
+            $spanning[$col['bh_cash']] = 'BH Cash';
+            $spanning[$col['bh_bank']] = 'BH Bank';
+        }
+
+        $spanning[$col['comments']] = 'Comments';
+        $spanning[$col['check']] = 'Check';
+
+        foreach ($spanning as $letter => $label) {
+            $sheet->setCellValue($letter.'1', $label);
+            $sheet->mergeCells($letter.'1:'.$letter.'2');
+        }
+
+        $lastColumn = $col['check'];
+        $sheet->getStyle("A1:{$lastColumn}2")->getFont()->setBold(true);
+        $sheet->getStyle("A1:{$lastColumn}2")->getAlignment()
+            ->setHorizontal('center')
+            ->setVertical('center')
+            ->setWrapText(true);
+
+        foreach ($col as $key => $letter) {
+            [$fill, $text] = self::WEEK_SHEET_HEADER_COLOURS[$key] ?? self::WEEK_SHEET_HEADER_DEFAULT;
+            $this->paintWeekSheetHeaderCell($sheet, $letter, $fill, $text);
+        }
+
+        foreach (self::WEEK_SHEET_DAY_COLUMNS as $letter) {
+            [$fill, $text] = self::WEEK_SHEET_HEADER_DEFAULT;
+            $this->paintWeekSheetHeaderCell($sheet, $letter, $fill, $text);
+        }
+
+        $sheet->getRowDimension(1)->setRowHeight(18);
+        $sheet->getRowDimension(2)->setRowHeight(18);
+        $sheet->freezePane('C3');
+    }
+
+    private function paintWeekSheetHeaderCell(Worksheet $sheet, string $letter, string $fill, string $text): void
+    {
+        $range = "{$letter}1:{$letter}2";
+
+        $sheet->getStyle($range)->getFill()
+            ->setFillType(Fill::FILL_SOLID)
+            ->getStartColor()->setARGB($fill);
+        $sheet->getStyle($range)->getFont()->getColor()->setARGB($text);
+    }
+
+    /**
+     * Fill the seven day cells for one employee.
+     */
+    private function writeWeekSheetDays(
+        Worksheet $sheet,
+        int $rowIndex,
+        array $row,
+        Employee $employee,
+        Carbon $monday,
+        $dailyAttendance,
+        $hourlyAttendance,
+        array $holidayMap = []
+    ): void {
+        $isDaily = ($row['type'] ?? null) === 'daily_rate';
+        $dailyAtt = $dailyAttendance[$employee->id] ?? null;
+        $hourlyAtt = $hourlyAttendance[$employee->id] ?? null;
+
+        foreach (self::WEEK_SHEET_DAY_KEYS as $index => $dayKey) {
+            $cell = self::WEEK_SHEET_DAY_COLUMNS[$index].$rowIndex;
+            $date = $monday->copy()->addDays($index);
+
+            if (! $employee->isPaidOn($date)) {
+                $sheet->setCellValue($cell, '-');
+                $sheet->getStyle($cell)->getFont()->getColor()->setARGB('FF9CA3AF');
+                $sheet->getStyle($cell)->getAlignment()->setHorizontal('center');
+
+                continue;
+            }
+
+            [$text, $fill, $fontColor] = $isDaily
+                ? $this->weekSheetDailyCell($dailyAtt, $dayKey)
+                : $this->weekSheetHourlyCell($hourlyAtt, $dayKey);
+
+            // A day worked on a bank holiday earned double, so say so on the cell
+            // itself — the money lands in the BH columns further right.
+            if (isset($holidayMap[$dayKey])) {
+                if (! in_array($text, ['OFF', 'CLOSED'], true)) {
+                    $text .= ' BH';
+                }
+                $fill ??= 'FFEDE9FE';
+            }
+
+            $sheet->setCellValue($cell, $text);
+            $sheet->getStyle($cell)->getAlignment()->setHorizontal('center')->setVertical('center');
+
+            if ($fill !== null) {
+                $sheet->getStyle($cell)->getFill()
+                    ->setFillType(Fill::FILL_SOLID)
+                    ->getStartColor()->setARGB($fill);
+            }
+
+            if ($fontColor !== null) {
+                $sheet->getStyle($cell)->getFont()->setBold(true)->getColor()->setARGB($fontColor);
+            }
+        }
+    }
+
+    /**
+     * @return array{0: string, 1: ?string, 2: ?string} text, fill, font colour
+     */
+    private function weekSheetDailyCell(?DailyRateAttendance $att, string $dayKey): array
+    {
+        $daysMap = ($att && is_array($att->days_map)) ? $att->days_map : [];
+        $present = (bool) ($daysMap[$dayKey] ?? false);
+
+        if (! $present) {
+            return $dayKey === 'sun'
+                ? ['CLOSED', 'FF0C4D90', 'FFFFFFFF']
+                : ['OFF', null, 'FFDC2626'];
+        }
+
+        $overtime = ($att && is_array($att->overtime_map)) ? (float) ($att->overtime_map[$dayKey] ?? 0) : 0.0;
+
+        return [$overtime > 0 ? 'IN+'.rtrim(rtrim(number_format($overtime, 2), '0'), '.') : 'IN', null, null];
+    }
+
+    /**
+     * @return array{0: string, 1: ?string, 2: ?string} text, fill, font colour
+     */
+    private function weekSheetHourlyCell(?HourlyAttendance $att, string $dayKey): array
+    {
+        $hours = ($att && is_array($att->hours_map)) ? (float) ($att->hours_map[$dayKey] ?? 0) : 0.0;
+        $overtime = ($att && is_array($att->ot_map)) ? (float) ($att->ot_map[$dayKey] ?? 0) : 0.0;
+
+        if ($hours <= 0) {
+            return $dayKey === 'sun'
+                ? ['CLOSED', 'FF0C4D90', 'FFFFFFFF']
+                : ['OFF', null, 'FFDC2626'];
+        }
+
+        $label = $this->trimNumber($hours).'hrs';
+
+        // The bracket spells out how the day splits, so the hours stay readable at a
+        // glance while the regular/overtime breakdown is still on the row.
+        if ($overtime > 0) {
+            $label .= ' ('.$this->trimNumber($hours - $overtime).'+'.$this->trimNumber($overtime).')';
+        }
+
+        return [$label, null, null];
+    }
+
+    /**
+     * @return array{0: float, 1: float} worked days, worked hours
+     */
+    private function weekSheetTotals(array $row, Employee $employee, $dailyAttendance, $hourlyAttendance): array
+    {
+        if (($row['type'] ?? null) === 'daily_rate') {
+            return [(float) ($row['present_days'] ?? 0), 0.0];
+        }
+
+        $att = $hourlyAttendance[$employee->id] ?? null;
+        $hoursMap = ($att && is_array($att->hours_map)) ? $att->hours_map : [];
+        $workedDays = count(array_filter($hoursMap, fn ($h) => (float) $h > 0));
+
+        $totalHours = (float) ($row['total_hours'] ?? 0) + (float) ($row['overtime_hours'] ?? 0);
+
+        return [(float) $workedDays, $totalHours];
+    }
+
+    private function writeWeekSheetCheckCell(Worksheet $sheet, string $cell): void
+    {
+        // Starts as an unchecked "no" in Excel's own Bad styling; whoever reviews the
+        // week overwrites it, exactly as they do on the sheet they keep by hand.
+        $sheet->setCellValue($cell, 'no');
+        $sheet->getStyle($cell)->getFill()
+            ->setFillType(Fill::FILL_SOLID)
+            ->getStartColor()->setARGB('FFFFC7CE');
+        $sheet->getStyle($cell)->getFont()->setBold(true)->getColor()->setARGB('FF9C0006');
+        $sheet->getStyle($cell)->getAlignment()->setHorizontal('center');
+    }
+
+    /**
+     * @param  array<string, float>  $totals
+     */
+    private function writeWeekSheetTotals(Worksheet $sheet, int $rowIndex, array $totals, array $col): void
+    {
+        $sheet->setCellValue($col['name_right'].$rowIndex, 'TOTAL');
+
+        $keys = ['total_weekly', 'cash', 'bank_weekly', 'bank_monthly'];
+
+        if (isset($col['bh_cash'])) {
+            $keys[] = 'bh_cash';
+            $keys[] = 'bh_bank';
+        }
+
+        foreach ($keys as $key) {
+            $this->setWeekSheetNumber($sheet, $col[$key].$rowIndex, $totals[$key], '#,##0.00');
+        }
+
+        $lastMoney = $col[$keys[count($keys) - 1]];
+        $range = "{$col['name_right']}{$rowIndex}:{$lastMoney}{$rowIndex}";
+        $sheet->getStyle($range)->getFont()->setBold(true);
+        $sheet->getStyle($range)->getFill()
+            ->setFillType(Fill::FILL_SOLID)
+            ->getStartColor()->setARGB('FFF3F4F6');
+    }
+
+    private function applyWeekSheetLayout(Worksheet $sheet, int $rowIndexAfterData, array $col): void
+    {
+        $lastRow = $rowIndexAfterData;
+
+        $widths = [
+            $col['no'] => 5,
+            $col['name_left'] => 26,
+            $col['ot'] => 9,
+            $col['total_wd'] => 9,
+            $col['total_wh'] => 9,
+            $col['redline'] => 2,
+            $col['name_right'] => 26,
+            $col['rate'] => 9,
+            $col['total_weekly'] => 13,
+            $col['cash'] => 12,
+            $col['bank_weekly'] => 12,
+            $col['bank_monthly'] => 13,
+            $col['comments'] => 28,
+            $col['check'] => 8,
+        ];
+
+        if (isset($col['bh_cash'])) {
+            $widths[$col['bh_cash']] = 11;
+            $widths[$col['bh_bank']] = 11;
+        }
+
+        foreach ($widths as $letter => $width) {
+            $sheet->getColumnDimension($letter)->setWidth($width);
+        }
+
+        foreach (self::WEEK_SHEET_DAY_COLUMNS as $letter) {
+            $sheet->getColumnDimension($letter)->setWidth(13);
+        }
+
+        // The red divider separates attendance from pay down the whole sheet.
+        $sheet->getStyle("{$col['redline']}1:{$col['redline']}{$lastRow}")->getFill()
+            ->setFillType(Fill::FILL_SOLID)
+            ->getStartColor()->setARGB('FFFF0000');
+
+        $sheet->getStyle("A1:{$col['check']}{$lastRow}")
+            ->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+    }
+
+    private function setWeekSheetNumber(Worksheet $sheet, string $cell, float $value, string $format): void
+    {
+        $sheet->setCellValue($cell, $value);
+        $sheet->getStyle($cell)->getNumberFormat()->setFormatCode($format);
+        $sheet->getStyle($cell)->getAlignment()->setHorizontal('center');
+    }
+
+    private function trimNumber(float $value): string
+    {
+        return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
     }
 
     /**
@@ -744,12 +932,15 @@ class PayrollController extends Controller
             'weekly' => $rows->sum('weekly_amount'),
             'cash' => $rows->sum('cash_amount'),
             'bank' => $rows->sum('bank_amount'),
+            'bh_cash' => $rows->sum('bh_cash'),
+            'bh_bank' => $rows->sum('bh_bank'),
             'arrears' => $rows->sum('arrears'),
         ];
 
         $pdf = Pdf::loadView('payroll.pdf.weekly', [
             'year' => $year,
             'week' => $week,
+            'showBankHoliday' => app(BankHolidayService::class)->monthHasHoliday($year, $week),
             'run' => $run,
             'rows' => $rows,
             'totals' => $totals,

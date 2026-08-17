@@ -43,15 +43,27 @@
     {{-- ══════════════════════════════════════════════════════════ --}}
     <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse; table-layout: fixed;">
         <thead>
+            @php
+                // Bank-holiday pay clears once a month, so the pair only appears on
+                // the settling week — and the other columns take the space back.
+                $showBh = $showBankHoliday ?? false;
+                $w = $showBh
+                    ? ['code' => 8, 'name' => 16, 'type' => 7, 'att' => 15, 'weekly' => 11, 'cash' => 10, 'bank' => 10, 'bh' => 8, 'arr' => 7]
+                    : ['code' => 9, 'name' => 18, 'type' => 9, 'att' => 18, 'weekly' => 12, 'cash' => 11, 'bank' => 11, 'arr' => 12];
+            @endphp
             <tr style="background: #0f172a;">
-                <th style="width: 9%; padding: 7px 6px; text-align: left; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Code</th>
-                <th style="width: 18%; padding: 7px 6px; text-align: left; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Name</th>
-                <th style="width: 9%; padding: 7px 6px; text-align: center; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Type</th>
-                <th style="width: 18%; padding: 7px 6px; text-align: center; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Attendance</th>
-                <th style="width: 12%; padding: 7px 6px; text-align: right; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Weekly Total</th>
-                <th style="width: 11%; padding: 7px 6px; text-align: right; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Cash</th>
-                <th style="width: 11%; padding: 7px 6px; text-align: right; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Bank</th>
-                <th style="width: 12%; padding: 7px 6px; text-align: right; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Arrears</th>
+                <th style="width: {{ $w['code'] }}%; text-align: left; padding: 7px 6px; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Code</th>
+                <th style="width: {{ $w['name'] }}%; text-align: left; padding: 7px 6px; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Name</th>
+                <th style="width: {{ $w['type'] }}%; text-align: center; padding: 7px 6px; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Type</th>
+                <th style="width: {{ $w['att'] }}%; text-align: center; padding: 7px 6px; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Attendance</th>
+                <th style="width: {{ $w['weekly'] }}%; text-align: right; padding: 7px 6px; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Weekly Total</th>
+                <th style="width: {{ $w['cash'] }}%; text-align: right; padding: 7px 6px; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Cash</th>
+                <th style="width: {{ $w['bank'] }}%; text-align: right; padding: 7px 6px; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Bank</th>
+                @if ($showBh)
+                    <th style="width: {{ $w['bh'] }}%; text-align: right; padding: 7px 6px; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">BH Cash</th>
+                    <th style="width: {{ $w['bh'] }}%; text-align: right; padding: 7px 6px; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">BH Bank</th>
+                @endif
+                <th style="width: {{ $w['arr'] }}%; text-align: right; padding: 7px 6px; font-size: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #fff; border: 1px solid #0f172a;">Arrears</th>
             </tr>
         </thead>
         <tbody>
@@ -79,13 +91,21 @@
                     <td style="padding: 6px; border: 1px solid #e2e8f0; text-align: right;">{{ number_format($row['weekly_amount'] ?? 0, 2) }}</td>
                     <td style="padding: 6px; border: 1px solid #e2e8f0; text-align: right;">{{ number_format($row['cash_amount'] ?? 0, 2) }}</td>
                     <td style="padding: 6px; border: 1px solid #e2e8f0; text-align: right;">{{ number_format($row['bank_amount'] ?? 0, 2) }}</td>
+                    @if ($showBh)
+                        <td style="padding: 6px; border: 1px solid #e2e8f0; text-align: right; color: {{ ($row['bh_cash'] ?? 0) > 0 ? '#7c3aed' : '#94a3b8' }};">
+                            {{ ($row['bh_cash'] ?? 0) > 0 ? number_format($row['bh_cash'], 2) : '—' }}
+                        </td>
+                        <td style="padding: 6px; border: 1px solid #e2e8f0; text-align: right; color: {{ ($row['bh_bank'] ?? 0) > 0 ? '#7c3aed' : '#94a3b8' }};">
+                            {{ ($row['bh_bank'] ?? 0) > 0 ? number_format($row['bh_bank'], 2) : '—' }}
+                        </td>
+                    @endif
                     <td style="padding: 6px; border: 1px solid #e2e8f0; text-align: right; color: {{ ($row['arrears'] ?? 0) > 0 ? '#dc2626' : '#94a3b8' }};">
                         {{ number_format($row['arrears'] ?? 0, 2) }}
                     </td>
                 </tr>
             @empty
                 <tr>
-                    <td colspan="8" style="padding: 14px; border: 1px solid #e2e8f0; text-align: center; color: #94a3b8;">
+                    <td colspan="{{ $showBh ? 10 : 8 }}" style="padding: 14px; border: 1px solid #e2e8f0; text-align: center; color: #94a3b8;">
                         No attendance found for this week.
                     </td>
                 </tr>
@@ -98,6 +118,10 @@
                     <td style="padding: 8px 6px; border: 1px solid #cbd5e1; font-weight: bold; text-align: right; color: #0f172a; font-size: 9.5px;">{{ number_format($totals['weekly'], 2) }}</td>
                     <td style="padding: 8px 6px; border: 1px solid #cbd5e1; font-weight: bold; text-align: right; color: #0f172a; font-size: 9.5px;">{{ number_format($totals['cash'], 2) }}</td>
                     <td style="padding: 8px 6px; border: 1px solid #cbd5e1; font-weight: bold; text-align: right; color: #0f172a; font-size: 9.5px;">{{ number_format($totals['bank'], 2) }}</td>
+                    @if ($showBh)
+                        <td style="padding: 8px 6px; border: 1px solid #cbd5e1; font-weight: bold; text-align: right; color: #7c3aed; font-size: 9.5px;">{{ number_format($totals['bh_cash'] ?? 0, 2) }}</td>
+                        <td style="padding: 8px 6px; border: 1px solid #cbd5e1; font-weight: bold; text-align: right; color: #7c3aed; font-size: 9.5px;">{{ number_format($totals['bh_bank'] ?? 0, 2) }}</td>
+                    @endif
                     <td style="padding: 8px 6px; border: 1px solid #cbd5e1; font-weight: bold; text-align: right; color: #0f172a; font-size: 9.5px;">{{ number_format($totals['arrears'], 2) }}</td>
                 </tr>
             </tfoot>

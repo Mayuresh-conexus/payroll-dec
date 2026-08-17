@@ -24,8 +24,12 @@ class DatabaseBackupService
 {
     private const FILENAME_PATTERN = '/^[A-Za-z0-9_\-]+\.sql\.gz$/';
 
+    private bool $preflightPassed = false;
+
     public function create(string $type = 'manual'): array
     {
+        $this->preflight();
+
         $directory = config('backup.directory');
         Storage::disk('local')->makeDirectory($directory);
 
@@ -103,6 +107,11 @@ class DatabaseBackupService
             throw new InvalidArgumentException("Backup file not found: {$filename}");
         }
 
+        // Probe before the safety dump, not after: a restore runs two client
+        // processes back to back, so an unreachable database would otherwise
+        // stall twice over before reporting anything.
+        $this->preflight();
+
         // Always take a fresh safety snapshot before touching the live database.
         // If this fails, propagate immediately — never restore without a fresh net.
         $pre = $this->create('prerestore');
@@ -137,6 +146,95 @@ class DatabaseBackupService
     public function isValidFilename(string $filename): bool
     {
         return (bool) preg_match(self::FILENAME_PATTERN, $filename);
+    }
+
+    /**
+     * Verify the database is actually reachable before starting real work.
+     *
+     * mysqldump has no connect-timeout option of its own, so on a host where the
+     * database is unreachable it blocks on the kernel's TCP retry budget (~2
+     * minutes) instead of failing. A restore pays that twice — once for the
+     * safety dump, once for the restore — which surfaces as a spinner that hangs
+     * for four minutes and then reports a generic timeout. Probing first with the
+     * mysql client, which does honour connect-timeout, turns that into a bounded
+     * and specific error before anything has been written.
+     */
+    private function preflight(): void
+    {
+        if ($this->preflightPassed) {
+            return;
+        }
+
+        $this->assertProcessFunctionsAvailable();
+
+        $optionFile = $this->writeMysqlOptionFile();
+
+        try {
+            $this->assertDatabaseReachable($optionFile);
+        } finally {
+            @unlink($optionFile);
+        }
+
+        $this->preflightPassed = true;
+    }
+
+    /**
+     * Shared hosting commonly disables proc_open, which Symfony Process needs.
+     * Without this check the failure surfaces as an opaque fatal error deep in
+     * the vendor stack rather than something an admin can act on.
+     */
+    private function assertProcessFunctionsAvailable(): void
+    {
+        $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
+
+        foreach (['proc_open', 'proc_close'] as $function) {
+            if (! function_exists($function) || in_array($function, $disabled, true)) {
+                throw new RuntimeException(
+                    "PHP's {$function}() is disabled on this server, so backups cannot run. "
+                    .'Remove it from disable_functions in php.ini (or ask your host to).'
+                );
+            }
+        }
+    }
+
+    private function assertDatabaseReachable(string $optionFile): void
+    {
+        $connectTimeout = (int) config('backup.connect_timeout', 10);
+
+        $process = new Process([
+            config('backup.mysql_path'),
+            '--defaults-extra-file='.$optionFile,
+            '--batch',
+            '--skip-column-names',
+            '--execute=SELECT 1',
+            $this->databaseName(),
+        ]);
+
+        // Slightly above the client's own connect-timeout so the client reports
+        // the specific reason rather than us reporting a blunt process timeout.
+        $process->setTimeout($connectTimeout + 5);
+
+        try {
+            $process->run();
+        } catch (ProcessTimedOutException $e) {
+            throw new RuntimeException(
+                "Could not reach the database within {$connectTimeout}s. "
+                .'Check the DB host, port and credentials in .env.'
+            );
+        }
+
+        if (! $process->isSuccessful()) {
+            $reason = trim($process->getErrorOutput()) ?: trim($process->getOutput());
+
+            if ($process->getExitCode() === 127) {
+                throw new RuntimeException(
+                    'The "'.config('backup.mysql_path').'" command was not found on this server. '
+                    .'Set MYSQL_PATH and MYSQLDUMP_PATH in .env to their full paths.'
+                );
+            }
+
+            throw new RuntimeException('Database connection check failed: '.$reason);
+        }
     }
 
     private function runDump(string $optionFile, string $destPath): void
@@ -218,7 +316,16 @@ class DatabaseBackupService
         }
 
         if (! $process->isSuccessful()) {
-            throw new RuntimeException('mysql restore failed: '.$process->getErrorOutput());
+            $error = trim($process->getErrorOutput());
+
+            if (str_contains($error, 'Lock wait timeout') || str_contains($error, 'metadata lock')) {
+                throw new RuntimeException(
+                    'Restore could not get exclusive access to the tables — another session is holding them open. '
+                    .'Ask other users to leave the app, then try again. ('.$error.')'
+                );
+            }
+
+            throw new RuntimeException('mysql restore failed: '.$error);
         }
     }
 
@@ -229,6 +336,8 @@ class DatabaseBackupService
             throw new RuntimeException("Unable to open {$path} for reading.");
         }
 
+        yield $this->restoreSessionPrologue();
+
         try {
             while (! gzeof($gz)) {
                 yield gzread($gz, 1024 * 1024);
@@ -236,6 +345,25 @@ class DatabaseBackupService
         } finally {
             gzclose($gz);
         }
+    }
+
+    /**
+     * Bound how long the restore will wait for table locks.
+     *
+     * A restore drops and recreates every table, which needs an exclusive
+     * metadata lock. MySQL's lock_wait_timeout defaults to 31536000 seconds — a
+     * full year — so a single other session with an open transaction on one of
+     * those tables stalls the restore indefinitely with no output at all. That
+     * is invisible on a quiet local machine and routine on a live server with
+     * other users logged in. Failing after a bounded wait turns a silent hang
+     * into an error the admin can act on.
+     */
+    private function restoreSessionPrologue(): string
+    {
+        $seconds = (int) config('backup.lock_wait_timeout', 30);
+
+        return "SET SESSION lock_wait_timeout = {$seconds};\n"
+            ."SET SESSION innodb_lock_wait_timeout = {$seconds};\n";
     }
 
     private function writeMysqlOptionFile(): string
@@ -253,6 +381,14 @@ class DatabaseBackupService
 
         $lines[] = 'user='.$db['username'];
         $lines[] = 'password='.$db['password'];
+
+        // connect-timeout must be scoped to [mysql] rather than [client]:
+        // mysqldump aborts with "unknown variable 'connect-timeout'" if it sees
+        // one, the same way it does for --set-gtid-purged. Options under a
+        // binary-specific section are only read by that binary.
+        $lines[] = '';
+        $lines[] = '[mysql]';
+        $lines[] = 'connect-timeout='.(int) config('backup.connect_timeout', 10);
 
         $path = tempnam(sys_get_temp_dir(), 'mysqlopt_');
         if ($path === false) {
@@ -274,7 +410,13 @@ class DatabaseBackupService
         }
 
         $process = new Process([config('backup.mysqldump_path'), '--help']);
-        $process->run();
+        $process->setTimeout(15);
+
+        try {
+            $process->run();
+        } catch (ProcessTimedOutException $e) {
+            return $supported = false;
+        }
 
         return $supported = str_contains($process->getOutput(), 'set-gtid-purged');
     }

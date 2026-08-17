@@ -24,6 +24,7 @@ class StoreEmployeeRequest extends FormRequest
             'hourly_rate' => 'required_if:type,hourly|nullable|numeric|min:0',
             'hours_per_day' => 'required_if:type,hourly|nullable|numeric|min:0',
             'bank_transfer_fix_amount' => 'nullable|numeric|min:0',
+            'bh_bank_percent' => 'nullable|numeric|min:0|max:100',
             'weekly_active_days' => 'nullable|integer|min:1|max:7',
             'bank_name' => 'nullable|string|max:100',
             'bank_account' => 'nullable|string|max:50',

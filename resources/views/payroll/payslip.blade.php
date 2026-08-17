@@ -187,24 +187,84 @@
             <th width="30%" style="padding: 8px 10px; text-align: right; font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; border: 1px solid #e2e8f0;">Amount (&#8377;)</th>
         </tr>
     </thead>
+    @php
+        // Each line states what it is, so the base row shows the base only —
+        // weekly_amount already carries overtime and any bank-holiday premium,
+        // and printing that against a "days x rate" label would not add up.
+        $isDailyRate = $item->type === 'daily_rate';
+        $appliedDaily = (float) ($item->applied_daily_rate ?? $employee->daily_rate ?? 0);
+        $appliedHourly = (float) ($item->applied_hourly_rate ?? $employee->hourly_rate ?? 0);
+
+        $baseEarnings = $isDailyRate
+            ? (float) ($item->present_days ?? 0) * $appliedDaily
+            : (float) ($item->total_hours ?? 0) * $appliedHourly;
+
+        $overtimePay = $isDailyRate
+            ? (float) ($item->overtime_amount ?? 0)
+            : (float) ($item->overtime_hours ?? 0) * $appliedHourly;
+
+        // Only the cash share of a bank-holiday premium is part of gross pay;
+        // the bank share leaves as its own transfer, shown below the split.
+        $bhPay = (float) ($item->bh_amount ?? 0);
+        $bhCash = (float) ($item->bh_cash ?? 0);
+        $bhBank = (float) ($item->bh_bank ?? 0);
+
+        // Paid leave is part of gross like the time it replaces, so it earns its
+        // own line rather than being folded into the weekly earnings above.
+        $leavePay = (float) ($item->leave_amount ?? 0);
+        $leaveUnits = $isDailyRate
+            ? (float) ($item->leave_days ?? 0)
+            : (float) ($item->leave_hours ?? 0);
+    @endphp
     <tbody>
         {{-- Weekly Earnings --}}
         <tr>
             <td style="padding: 9px 10px; border: 1px solid #e2e8f0; color: #334155;">
-                @if ($item->type === 'daily_rate')
-                    Weekly earnings ({{ $item->present_days ?? 0 }} days &times; &#8377;{{ number_format($item->applied_daily_rate ?? $employee->daily_rate ?? 0, 2) }})
+                @if ($isDailyRate)
+                    Weekly earnings ({{ $item->present_days ?? 0 }} days &times; &#8377;{{ number_format($appliedDaily, 2) }})
                 @else
-                    Weekly earnings ({{ number_format($item->total_hours ?? 0, 2) }} hrs &times; &#8377;{{ number_format($item->applied_hourly_rate ?? $employee->hourly_rate ?? 0, 2) }})
+                    Weekly earnings ({{ number_format($item->total_hours ?? 0, 2) }} hrs &times; &#8377;{{ number_format($appliedHourly, 2) }})
                 @endif
             </td>
-            <td style="padding: 9px 10px; border: 1px solid #e2e8f0; text-align: right; color: #334155;">{{ number_format($item->weekly_amount ?? 0, 2) }}</td>
+            <td style="padding: 9px 10px; border: 1px solid #e2e8f0; text-align: right; color: #334155;">{{ number_format($baseEarnings, 2) }}</td>
         </tr>
 
         {{-- Overtime --}}
-        @if (($item->overtime_amount ?? 0) > 0)
+        @if ($overtimePay > 0)
         <tr>
-            <td style="padding: 9px 10px; border: 1px solid #e2e8f0; color: #334155;">Overtime allowance</td>
-            <td style="padding: 9px 10px; border: 1px solid #e2e8f0; text-align: right; color: #334155;">{{ number_format($item->overtime_amount, 2) }}</td>
+            <td style="padding: 9px 10px; border: 1px solid #e2e8f0; color: #334155;">
+                Overtime allowance
+                @unless ($isDailyRate)
+                    ({{ number_format($item->overtime_hours ?? 0, 2) }} hrs &times; &#8377;{{ number_format($appliedHourly, 2) }})
+                @endunless
+            </td>
+            <td style="padding: 9px 10px; border: 1px solid #e2e8f0; text-align: right; color: #334155;">{{ number_format($overtimePay, 2) }}</td>
+        </tr>
+        @endif
+
+        {{-- Bank holiday premium: the second half of double pay for holidays worked --}}
+        @if ($bhCash > 0)
+        <tr>
+            <td style="padding: 9px 10px; border: 1px solid #e2e8f0; color: #7c3aed;">
+                Bank holiday premium &mdash; cash share
+                <span style="color: #94a3b8; font-size: 9px;">(of {{ number_format($bhPay, 2) }} earned this month)</span>
+            </td>
+            <td style="padding: 9px 10px; border: 1px solid #e2e8f0; text-align: right; color: #7c3aed;">{{ number_format($bhCash, 2) }}</td>
+        </tr>
+        @endif
+
+        {{-- Paid leave --}}
+        @if ($leavePay > 0)
+        <tr>
+            <td style="padding: 9px 10px; border: 1px solid #e2e8f0; color: #0369a1;">
+                Paid leave
+                @if ($isDailyRate)
+                    ({{ $leaveUnits }} days &times; &#8377;{{ number_format($appliedDaily, 2) }})
+                @else
+                    ({{ $leaveUnits }} hrs &times; &#8377;{{ number_format($appliedHourly, 2) }})
+                @endif
+            </td>
+            <td style="padding: 9px 10px; border: 1px solid #e2e8f0; text-align: right; color: #0369a1;">{{ number_format($leavePay, 2) }}</td>
         </tr>
         @endif
 
@@ -225,6 +285,19 @@
             <td style="padding: 8px 10px; border: 1px solid #e2e8f0; color: #9e2a2b; font-size: 10px;">&#8627; Paid by Bank Transfer</td>
             <td style="padding: 8px 10px; border: 1px solid #e2e8f0; text-align: right; color: #9e2a2b; font-weight: bold; font-size: 10px;">{{ number_format($item->bank_amount ?? 0, 2) }}</td>
         </tr>
+
+        {{-- The bank share of the holiday premium rides on top of the fixed
+             transfer, so it sits outside gross and is totalled separately. --}}
+        @if ($bhBank > 0)
+        <tr style="background: #f5f3ff;">
+            <td style="padding: 8px 10px; border: 1px solid #e2e8f0; color: #7c3aed; font-size: 10px;">&#8627; Bank holiday transfer (extra)</td>
+            <td style="padding: 8px 10px; border: 1px solid #e2e8f0; text-align: right; color: #7c3aed; font-weight: bold; font-size: 10px;">{{ number_format($bhBank, 2) }}</td>
+        </tr>
+        <tr style="background: #f1f5f9;">
+            <td style="padding: 11px 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; font-size: 11px;">Total Paid</td>
+            <td style="padding: 11px 10px; border: 1px solid #cbd5e1; text-align: right; font-weight: bold; color: #0f172a; font-size: 11px;">{{ number_format((float) ($item->gross_amount ?? 0) + $bhBank, 2) }}</td>
+        </tr>
+        @endif
     </tbody>
 </table>
 

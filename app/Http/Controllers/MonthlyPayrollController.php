@@ -7,6 +7,8 @@ use App\Models\Employee;
 use App\Models\HourlyAttendance;
 use App\Models\PayrollItem;
 use App\Models\PayrollRun;
+use App\Services\BankHolidayService;
+use App\Services\LeaveService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -75,8 +77,10 @@ class MonthlyPayrollController extends Controller
 
         $mStart = Carbon::createFromFormat('Y-m-d', $month.'-01');
         $mEnd = $mStart->copy()->endOfMonth();
+        $bankHolidays = app(BankHolidayService::class);
+        $leaves = app(LeaveService::class);
 
-        $items = PayrollItem::with('payrollRun')
+        $items = PayrollItem::with(['payrollRun', 'employee'])
             ->whereIn('payroll_run_id', $runIds)
             ->get();
 
@@ -111,6 +115,9 @@ class MonthlyPayrollController extends Controller
                     'weekly' => 0.0,
                     'addon_total' => 0.0,
                     'addon_cash_total' => 0.0,
+                    'bh_amount' => 0.0,
+                    'bh_cash' => 0.0,
+                    'bh_bank' => 0.0,
                     'addons' => [],
                 ];
             }
@@ -169,6 +176,22 @@ class MonthlyPayrollController extends Controller
                         foreach ($dayKeys as $d) {
                             $presentMap[$d] = ! empty($dm[$d]) ? 1 : 0;
                         }
+                    }
+                }
+            }
+
+            // A week's money is split between months by the days it was earned on,
+            // and a paid leave day earns just as much as a worked one. Without this
+            // a week spent entirely on leave would count zero earned days and drop
+            // out of the month altogether, taking its leave pay with it.
+            if ($it->employee && (float) ($it->leave_amount ?? 0) > 0) {
+                $presentMap = is_array($presentMap) ? $presentMap : [];
+
+                foreach (array_keys($leaves->leaveDatesFor($it->employee, $weekStart, $weekEnd)) as $leaveDate) {
+                    $dayKey = $dayKeys[Carbon::parse($leaveDate)->dayOfWeekIso - 1];
+
+                    if (empty($presentMap[$dayKey])) {
+                        $presentMap[$dayKey] = 1;
                     }
                 }
             }
@@ -252,6 +275,8 @@ class MonthlyPayrollController extends Controller
                 $proratedCash = (float) ($it->cash_amount ?? 0) * $factor;
                 $proratedBank = (float) ($it->bank_amount ?? 0) * $factor;
 
+                $settlesThisMonth = ($bankHolidays->settledMonth($year, $w)?->format('Y-m')) === $month;
+
                 $grossToAdd = $proratedWeekly + $addonInMonth + $proratedOvertime;
                 $cashToAdd = $proratedCash + $addonCashInMonth;
                 $bankToAdd = max(0, $grossToAdd - $cashToAdd);
@@ -262,6 +287,18 @@ class MonthlyPayrollController extends Controller
                 $map[$k][$weekKey]['bank'] += $bankToAdd;
 
                 $map[$k][$weekKey]['weekly'] += $proratedWeekly;
+
+                // Bank-holiday pay belongs whole to the month it settles, so it is
+                // never prorated — and it is only counted by that month, otherwise
+                // the settling week (which straddles two months) would hand the same
+                // premium to both. The cash share already sits inside weekly_amount;
+                // the bank share is an extra transfer added to the month's bank total.
+                if ($settlesThisMonth) {
+                    $map[$k][$weekKey]['bh_amount'] += (float) ($it->bh_amount ?? 0);
+                    $map[$k][$weekKey]['bh_cash'] += (float) ($it->bh_cash ?? 0);
+                    $map[$k][$weekKey]['bh_bank'] += (float) ($it->bh_bank ?? 0);
+                }
+
                 $map[$k][$weekKey]['addon_total'] += $addonInMonth;
                 $map[$k][$weekKey]['addon_cash_total'] += $addonCashInMonth;
 
@@ -308,6 +345,9 @@ class MonthlyPayrollController extends Controller
             $weeklyAmount = 0.0;
             $addonsTotal = 0.0;
             $addonsCashTotal = 0.0;
+            $bhAmountTotal = 0.0;
+            $bhCashTotal = 0.0;
+            $bhBankTotal = 0.0;
             $addonsList = [];
             $cashAmount = 0.0;
             $bankFixTotal = 0.0; // sum of prorated bank_transfer_fix_amount across weeks in this month
@@ -328,6 +368,9 @@ class MonthlyPayrollController extends Controller
                 $weeklyAmount += (float) ($data['weekly'] ?? 0);
                 $addonsTotal += (float) ($data['addon_total'] ?? 0);
                 $addonsCashTotal += (float) ($data['addon_cash_total'] ?? 0);
+                $bhAmountTotal += (float) ($data['bh_amount'] ?? 0);
+                $bhCashTotal += (float) ($data['bh_cash'] ?? 0);
+                $bhBankTotal += (float) ($data['bh_bank'] ?? 0);
                 $addonsList = array_merge($addonsList, $data['addons'] ?? []);
 
                 // Get weekly payroll item (weekly run) to pick cash_amount source
@@ -444,6 +487,10 @@ class MonthlyPayrollController extends Controller
                 'weekly_amount' => $weeklyAmount,
                 'addons' => $addonsList,
                 'addons_total' => $addonsTotal,
+                'bh_amount' => round($bhAmountTotal, 2),
+                'bh_cash' => round($bhCashTotal, 2),
+                'bh_bank' => round($bhBankTotal, 2),
+                'bank_plus_bh' => round($bankAmount + $bhBankTotal, 2),
                 'addons_cash_total' => $addonsCashTotal,
                 // advance tracking
                 'advance_balance' => $advanceBalance,
@@ -578,6 +625,7 @@ class MonthlyPayrollController extends Controller
             'Gross',
             'Cash',
             'Bank',
+            'BH',
             'Note',
             'Transfer ID',
             'Transfer Date',
@@ -635,26 +683,27 @@ class MonthlyPayrollController extends Controller
             $this->setCell($sheet, 5, $rowIndex, (float) ($r['gross_amount'] ?? 0));
             $this->setCell($sheet, 6, $rowIndex, (float) ($r['cash_amount'] ?? 0));
             $this->setCell($sheet, 7, $rowIndex, (float) ($r['bank_amount'] ?? 0));
+            $this->setCell($sheet, 8, $rowIndex, (float) ($r['bh_amount'] ?? 0));
 
             // Set additional data: note, transfer ID, date, status
-            $this->setCell($sheet, 8, $rowIndex, $r['note'] ?? '');
-            $this->setCell($sheet, 9, $rowIndex, $r['transfer_id'] ?? '');
+            $this->setCell($sheet, 9, $rowIndex, $r['note'] ?? '');
+            $this->setCell($sheet, 10, $rowIndex, $r['transfer_id'] ?? '');
 
             // Transfer date (formatted for Excel)
             if (! empty($r['transfer_date'])) {
                 try {
                     $dt = Carbon::parse($r['transfer_date']);
-                    $this->setCell($sheet, 10, $rowIndex, ExcelDate::PHPToExcel($dt->toDateTime()));
-                    $sheet->getStyle("J{$rowIndex}")->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+                    $this->setCell($sheet, 11, $rowIndex, ExcelDate::PHPToExcel($dt->toDateTime()));
+                    $sheet->getStyle("K{$rowIndex}")->getNumberFormat()->setFormatCode('yyyy-mm-dd');
                 } catch (\Throwable $e) {
-                    $this->setCell($sheet, 10, $rowIndex, (string) $r['transfer_date']);
+                    $this->setCell($sheet, 11, $rowIndex, (string) $r['transfer_date']);
                 }
             } else {
-                $this->setCell($sheet, 10, $rowIndex, '');
+                $this->setCell($sheet, 11, $rowIndex, '');
             }
 
             // Transfer status (pending, completed, failed)
-            $this->setCell($sheet, 11, $rowIndex, $r['transfer_status'] ?? '');
+            $this->setCell($sheet, 12, $rowIndex, $r['transfer_status'] ?? '');
 
             // Move to the next row
             $rowIndex++;
@@ -682,12 +731,12 @@ class MonthlyPayrollController extends Controller
         }
 
         // Money Format for columns E, F, G (Gross, Cash, Bank)
-        $sheet->getStyle("E4:G{$lastRow}")
+        $sheet->getStyle("E4:H{$lastRow}")
             ->getNumberFormat()
             ->setFormatCode(NumberFormat::FORMAT_NUMBER_00);
 
         // Align money values to the right
-        $sheet->getStyle("E4:G{$lastRow}")
+        $sheet->getStyle("E4:H{$lastRow}")
             ->getAlignment()
             ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
 

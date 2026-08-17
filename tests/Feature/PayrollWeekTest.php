@@ -515,11 +515,101 @@ class PayrollWeekTest extends TestCase
         unlink($tmp);
 
         // 6 present days * 200 = 1200 gross/weekly; cash = 1200 - bank_fix(100) = 1100
-        $this->assertEquals(1100, (float) $sheet->getCell('O5')->getValue());
-        $this->assertEquals(100, (float) $sheet->getCell('P5')->getValue());
+        $this->assertEquals(1100, (float) $sheet->getCell('Q3')->getValue());
+        $this->assertEquals(100, (float) $sheet->getCell('R3')->getValue());
     }
 
-    public function test_export_includes_arrears_column(): void
+    public function test_weekly_export_uses_the_client_sheet_layout(): void
+    {
+        // The workbook mirrors the one the client has kept by hand for years:
+        // attendance on the left, a red divider, pay on the right, with the employee
+        // name repeated either side. Column positions are the contract here.
+        $admin = $this->admin();
+        $this->actingAs($admin);
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate',
+            'daily_rate' => 100,
+            'bank_transfer_fix_amount' => 450,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0],
+        ], 2026, 31, false);
+
+        $response = $this->get('/payroll/export-week?year=2026&week=31');
+        $response->assertOk();
+
+        $tmp = tempnam(sys_get_temp_dir(), 'payroll_export_test').'.xlsx';
+        file_put_contents($tmp, $response->streamedContent());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
+        unlink($tmp);
+
+        $this->assertEquals('NO', $sheet->getCell('A1')->getValue());
+        $this->assertEquals('WEEK 31', $sheet->getCell('B1')->getValue());
+        $this->assertEquals('Employee Name', $sheet->getCell('B2')->getValue());
+        $this->assertEquals('Mon', $sheet->getCell('C2')->getValue());
+        $this->assertEquals('Sun', $sheet->getCell('I2')->getValue());
+        $this->assertEquals('OT', $sheet->getCell('J1')->getValue());
+        $this->assertEquals('Total WD', $sheet->getCell('K1')->getValue());
+        $this->assertEquals('Total WH', $sheet->getCell('L1')->getValue());
+        $this->assertEquals('WEEK 31', $sheet->getCell('N1')->getValue());
+        $this->assertEquals('Employee Name', $sheet->getCell('N2')->getValue());
+        $this->assertEquals('Rate', $sheet->getCell('O1')->getValue());
+        $this->assertEquals('Total Weekly', $sheet->getCell('P1')->getValue());
+        $this->assertEquals('CASH', $sheet->getCell('Q1')->getValue());
+        $this->assertEquals('Bank Weekly', $sheet->getCell('R1')->getValue());
+        $this->assertEquals('Bank Monthly', $sheet->getCell('S1')->getValue());
+        // No holiday this month, so the BH pair is absent and Comments/Check
+        // sit where they always did.
+        $this->assertEquals('Comments', $sheet->getCell('T1')->getValue());
+        $this->assertEquals('Check', $sheet->getCell('U1')->getValue());
+
+        // First data row: numbered, name on both sides of the divider, Sunday closed.
+        $this->assertEquals(1, (int) $sheet->getCell('A3')->getValue());
+        $this->assertEquals($emp->name, $sheet->getCell('B3')->getValue());
+        $this->assertEquals($emp->name, $sheet->getCell('N3')->getValue());
+        $this->assertEquals('IN', $sheet->getCell('C3')->getValue());
+        $this->assertEquals('CLOSED', $sheet->getCell('I3')->getValue());
+        $this->assertEquals(6, (float) $sheet->getCell('K3')->getValue());
+        $this->assertEquals('no', $sheet->getCell('U3')->getValue());
+
+        // Bank Monthly annualises the standing order: 450 * 52 / 12.
+        $this->assertEqualsWithDelta(1950.0, (float) $sheet->getCell('S3')->getValue(), 0.01);
+
+        // The red divider column carries no data.
+        $this->assertEmpty($sheet->getCell('M3')->getValue());
+    }
+
+    public function test_hourly_day_cells_show_hours_with_the_split(): void
+    {
+        $admin = $this->admin();
+        $this->actingAs($admin);
+        $emp = Employee::factory()->create([
+            'type' => 'hourly', 'hourly_rate' => 17.50, 'hours_per_day' => 8,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveHourlyEmployee($emp->id, [
+            'hours_map' => ['mon' => 10, 'tue' => 11, 'wed' => 8],
+        ], 2026, 31, false);
+
+        $response = $this->get('/payroll/export-week?year=2026&week=31');
+        $response->assertOk();
+
+        $tmp = tempnam(sys_get_temp_dir(), 'payroll_export_test').'.xlsx';
+        file_put_contents($tmp, $response->streamedContent());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
+        unlink($tmp);
+
+        $this->assertEquals('10hrs (8+2)', $sheet->getCell('C3')->getValue());
+        $this->assertEquals('11hrs (8+3)', $sheet->getCell('D3')->getValue());
+        $this->assertEquals('8hrs', $sheet->getCell('E3')->getValue(), 'a day at the norm carries no bracket');
+        $this->assertEquals(5, (float) $sheet->getCell('J3')->getValue(), 'OT column holds the hours');
+        $this->assertEquals(3, (float) $sheet->getCell('K3')->getValue(), 'Total WD counts days worked');
+        $this->assertEquals(29, (float) $sheet->getCell('L3')->getValue(), 'Total WH is all hours worked');
+        $this->assertEquals('-', $sheet->getCell('S3')->getValue(), 'hourly staff have no monthly standing order');
+    }
+
+    public function test_export_arrears_moved_out_of_the_workbook(): void
     {
         $admin = $this->admin();
         $this->actingAs($admin);
@@ -548,8 +638,13 @@ class PayrollWeekTest extends TestCase
         $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
         unlink($tmp);
 
-        $this->assertEquals('Arrears', $sheet->getCell('Q3')->getValue());
-        $this->assertEquals(300, (float) $sheet->getCell('Q5')->getValue());
+        // The client sheet has no arrears column, so the workbook no longer carries
+        // one. The figure is still reported on the payroll page and the PDF export.
+        foreach (range('A', 'W') as $letter) {
+            $this->assertNotEquals('Arrears', $sheet->getCell($letter.'1')->getValue());
+        }
+
+        $this->get('/payroll/export-week-pdf?year=2026&week=12')->assertOk();
     }
 
     public function test_guest_cannot_export_week_pdf(): void
@@ -695,5 +790,104 @@ class PayrollWeekTest extends TestCase
 
         $this->assertEquals(400.0, (float) $item23->advance_balance,
             'Partial monthly settlement: 400 carries forward into June');
+    }
+
+    public function test_bank_holiday_columns_appear_in_the_weekly_export(): void
+    {
+        \App\Models\Holiday::factory()->on('2026-07-27')->create(['name' => 'August BH']);
+
+        $admin = $this->admin();
+        $this->actingAs($admin);
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135,
+            'bh_bank_percent' => 40, 'bank_transfer_fix_amount' => 0,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0],
+        ], 2026, 31, false);
+
+        $response = $this->get('/payroll/export-week?year=2026&week=31');
+        $response->assertOk();
+
+        $tmp = tempnam(sys_get_temp_dir(), 'payroll_export_test').'.xlsx';
+        file_put_contents($tmp, $response->streamedContent());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
+        unlink($tmp);
+
+        // 6 days x 135 = 810, plus the 81 cash share of the 135 premium = 891.
+        // The 54 bank share is a separate transfer and stays out of the total.
+        $this->assertEqualsWithDelta(891.0, (float) $sheet->getCell('P3')->getValue(), 0.01);
+        $this->assertEqualsWithDelta(81.0, (float) $sheet->getCell('T3')->getValue(), 0.01, 'BH cash');
+        $this->assertEqualsWithDelta(54.0, (float) $sheet->getCell('U3')->getValue(), 0.01, 'BH bank');
+
+        // The holiday is named on the day column and flagged on the cell.
+        $this->assertStringContainsString('BH', (string) $sheet->getCell('C2')->getValue());
+        $this->assertSame('IN BH', $sheet->getCell('C3')->getValue());
+        $this->assertSame('IN', $sheet->getCell('D3')->getValue(), 'an ordinary day is untouched');
+    }
+
+    public function test_a_bank_holiday_week_reports_no_arrears_on_the_payroll_page(): void
+    {
+        // Guards the isSaved heuristic: the premium moves bank_amount off
+        // bank_transfer_fix_amount, which used to read as "already saved".
+        \App\Models\Holiday::factory()->on('2026-07-27')->create();
+
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135,
+            'bh_bank_percent' => 40, 'bank_transfer_fix_amount' => 200,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1],
+        ], 2026, 31, false);
+
+        $rows = $this->get('/payroll?year=2026&week=31')->assertOk()->viewData('rows');
+        $row = $rows->firstWhere('employee.id', $emp->id);
+
+        // 3 days x 135 = 405, plus the 81 cash share = 486.
+        $this->assertEqualsWithDelta(486.0, (float) $row['weekly_amount'], 0.01);
+        $this->assertEqualsWithDelta(135.0, (float) $row['bh_amount'], 0.01);
+        $this->assertEqualsWithDelta(0.0, (float) $row['arrears'], 0.01, 'no phantom advance');
+        $this->assertEqualsWithDelta(200.0, (float) $row['bank_amount'], 0.01, 'the fixed amount, untouched');
+        $this->assertEqualsWithDelta(54.0, (float) $row['bh_bank'], 0.01, 'separate transfer on top');
+        $this->assertEqualsWithDelta(286.0, (float) $row['cash_amount'], 0.01, '486 - 200, incl. 81 BH cash');
+    }
+
+    public function test_bank_holiday_columns_are_absent_outside_the_settlement_week(): void
+    {
+        // Week 30 of 2026 is an ordinary week; July settles in week 31.
+        \App\Models\Holiday::factory()->on('2026-07-22')->create();
+
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 135]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['wed' => 1],
+        ], 2026, 30, false);
+
+        $this->get('/payroll?year=2026&week=30')->assertOk()->assertViewHas('showBankHoliday', false);
+
+        $response = $this->get('/payroll/export-week?year=2026&week=30');
+        $tmp = tempnam(sys_get_temp_dir(), 'payroll_export_test').'.xlsx';
+        file_put_contents($tmp, $response->streamedContent());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
+        unlink($tmp);
+
+        $this->assertEquals('Comments', $sheet->getCell('T1')->getValue(), 'no BH pair on an ordinary week');
+    }
+
+    public function test_settlement_week_without_any_holiday_hides_the_columns(): void
+    {
+        // Week 31 settles July, but July has no holiday at all.
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create(['type' => 'daily_rate', 'daily_rate' => 135]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1],
+        ], 2026, 31, false);
+
+        $this->get('/payroll?year=2026&week=31')->assertOk()->assertViewHas('showBankHoliday', false);
     }
 }

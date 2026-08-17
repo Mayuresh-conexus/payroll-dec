@@ -78,22 +78,29 @@
                 restoreTarget: null,
                 restoreConfirmText: '',
                 restoring: false,
+                restoreSeconds: 0,
+                restoreTimer: null,
                 deleteModalOpen: false,
                 deleteTarget: null,
                 openRestore(backup) {
                     this.restoreTarget = backup;
                     this.restoreConfirmText = '';
                     this.restoring = false;
+                    this.restoreSeconds = 0;
                     this.restoreModalOpen = true;
                 },
 
                 /**
-                 * Restore is a synchronous request that can run for a while, so swap
-                 * the dialog into a busy state and warn against closing the tab. The
-                 * page reloads with a success banner when the server responds.
+                 * Restore is a synchronous request, so swap the dialog into a busy
+                 * state and warn against closing the tab. The elapsed counter keeps
+                 * the spinner honest: a healthy restore of this database finishes in
+                 * about a second, so a climbing number is itself the diagnosis.
                  */
                 beginRestore() {
                     this.restoring = true;
+                    this.restoreSeconds = 0;
+                    clearInterval(this.restoreTimer);
+                    this.restoreTimer = setInterval(() => this.restoreSeconds++, 1000);
                     window.onbeforeunload = () => true;
                 },
                 openDelete(backup) {

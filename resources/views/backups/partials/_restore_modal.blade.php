@@ -65,10 +65,23 @@
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"></path>
                     </svg>
-                    <div>
-                        <p class="text-sm font-medium">Restoring database…</p>
+                    <div class="min-w-0">
+                        <p class="text-sm font-medium">
+                            Restoring database…
+                            <span class="text-slate-300 font-normal" x-text="'(' + restoreSeconds + 's)'"></span>
+                        </p>
                         <p class="text-xs text-slate-300 mt-0.5">Taking a safety backup first. Do not close this tab.</p>
                     </div>
+                </div>
+
+                {{-- A healthy restore finishes in about a second, so anything past
+                     this point means the server is stuck rather than busy. --}}
+                <div x-show="restoreSeconds >= 20" x-cloak
+                    class="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-800">
+                    <p class="font-semibold">This is taking longer than expected.</p>
+                    <p class="mt-0.5">The database usually restores in a few seconds. If this keeps climbing, run
+                        <code class="font-mono bg-amber-100 px-1 py-0.5 rounded">php artisan backup:doctor</code>
+                        on the server to see which step is stalling.</p>
                 </div>
             </div>
 

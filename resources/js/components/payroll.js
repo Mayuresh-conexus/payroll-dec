@@ -4,7 +4,7 @@
 export function payrollPage() {
     return {
         items:          [],
-        totals:         { weeklyAmount: 0, cash: 0, bank: 0 },
+        totals:         { weeklyAmount: 0, cash: 0, bank: 0, bhCash: 0, bhBank: 0 },
         openSettleModal: null,   // index of row whose settle modal is open
 
         get year()  { return window.payrollConfig?.year  ?? 0; },
@@ -45,7 +45,14 @@ export function payrollPage() {
                 const savedBank     = Number(row.bank_amount              || 0);
                 const bankFix       = Number(row.bank_transfer_fix_amount || 0);
                 const prevBalance   = Number(row.prev_advance_balance     || 0);
-                const isSaved       = savedCash > 0 || savedBank !== bankFix;
+                const bhAmount      = Number(row.bh_amount                || 0);
+                const bhCash        = Number(row.bh_cash                  || 0);
+                const bhBank        = Number(row.bh_bank                  || 0);
+
+                // Mirror of PayrollService::mergeWithPayrollRun. The bank-holiday
+                // bank share is a separate transfer, so bank stays the fixed figure
+                // and this test is unaffected by it.
+                const isSaved       = savedCash > 0 || Math.abs(savedBank - bankFix) > 0.005;
 
                 let cashAmount, bankAmount, recover;
                 if (isSaved) {
@@ -71,6 +78,9 @@ export function payrollPage() {
                     gross_amount:         Number(row.gross_amount    || 0),
                     overtime_amount:      Number(row.overtime_amount || 0),
                     addons:               row.addons || [],
+                    bh_amount:            bhAmount,
+                    bh_cash:              bhCash,
+                    bh_bank:              bhBank,
                     prev_advance_balance: prevBalance,
                 };
             });
@@ -175,15 +185,19 @@ export function payrollPage() {
         },
 
         recalculateTotals() {
-            let weekly = 0, cash = 0, bank = 0;
+            let weekly = 0, cash = 0, bank = 0, bhCash = 0, bhBank = 0;
             for (const it of this.items) {
                 weekly += Number(it.weekly_amount || 0);
                 cash   += Number(it.cash          || 0);
                 bank   += Number(it.bank          || 0);
+                bhCash += Number(it.bh_cash       || 0);
+                bhBank += Number(it.bh_bank       || 0);
             }
             this.totals.weeklyAmount = weekly;
             this.totals.cash         = cash;
             this.totals.bank         = bank;
+            this.totals.bhCash       = bhCash;
+            this.totals.bhBank       = bhBank;
         },
     };
 }

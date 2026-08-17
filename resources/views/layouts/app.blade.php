@@ -104,6 +104,29 @@
                         <span x-show="!sidebarCollapsed" x-transition.opacity>Users</span>
                     </a>
 
+                    {{-- Bank Holidays --}}
+                    <a href="{{ route('holidays.index') }}"
+                        class="group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
+                          @if (request()->routeIs('holidays.*')) bg-brand-600 text-white @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
+                        <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('holidays.*')) text-white @else text-slate-500 group-hover:text-brand-400 @endif"
+                            fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0V11.25a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+                        </svg>
+                        <span x-show="!sidebarCollapsed" x-transition.opacity>Holidays</span>
+                    </a>
+
+                    {{-- Leave --}}
+                    <a href="{{ route('leaves.index') }}"
+                        class="group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
+                          @if (request()->routeIs('leaves.*')) bg-brand-600 text-white @else text-slate-400 hover:bg-slate-800 hover:text-white @endif">
+                        <svg class="w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-105 @if(request()->routeIs('leaves.*')) text-white @else text-slate-500 group-hover:text-brand-400 @endif"
+                            fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 2.25v3M16 2.25v3M3.75 9h16.5M4.5 5.25h15a.75.75 0 0 1 .75.75v13.5a.75.75 0 0 1-.75.75h-15a.75.75 0 0 1-.75-.75V6a.75.75 0 0 1 .75-.75Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m9.75 14.25 1.5 1.5 3-3.75" />
+                        </svg>
+                        <span x-show="!sidebarCollapsed" x-transition.opacity>Leave</span>
+                    </a>
+
                     {{-- Manager Assignments --}}
                     <a href="{{ route('managers.index') }}"
                         class="group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200

@@ -144,6 +144,91 @@ class BackupManagementTest extends TestCase
         $this->assertNotContains('migrations', $excluded, 'schema state is needed to restore coherently');
     }
 
+    // ── Preflight / fail-fast ────────────────────────────────────────────────
+
+    public function test_backup_fails_fast_when_database_host_is_unreachable(): void
+    {
+        // Regression guard for a restore that appeared to hang for ~4 minutes.
+        // mysqldump has no connect-timeout flag, so an unreachable host left it
+        // blocking on the kernel's TCP retry budget — twice, since a restore also
+        // takes a safety dump first. The preflight probe must bound that.
+        config([
+            'database.connections.mysql.host' => '10.255.255.1', // reserved, blackholed
+            'database.connections.mysql.unix_socket' => null,
+            'backup.connect_timeout' => 3,
+        ]);
+
+        $service = app(\App\Services\DatabaseBackupService::class);
+
+        $start = microtime(true);
+
+        try {
+            $service->create('manual');
+            $this->fail('Expected the preflight probe to reject an unreachable database.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('connection check failed', $e->getMessage());
+        }
+
+        $this->assertLessThan(
+            30,
+            microtime(true) - $start,
+            'Preflight must fail in seconds, not block on the TCP retry budget.'
+        );
+    }
+
+    public function test_connect_timeout_is_scoped_to_the_mysql_section_only(): void
+    {
+        // mysqldump aborts with "unknown variable 'connect-timeout'" if the option
+        // appears under [client], the same way it does for --set-gtid-purged. It
+        // must stay under [mysql], which only the mysql client reads.
+        $service = app(\App\Services\DatabaseBackupService::class);
+
+        $method = new \ReflectionMethod($service, 'writeMysqlOptionFile');
+        $path = $method->invoke($service);
+        $contents = file_get_contents($path);
+        @unlink($path);
+
+        [$clientSection, $mysqlSection] = explode('[mysql]', $contents);
+
+        $this->assertStringNotContainsString('connect-timeout', $clientSection);
+        $this->assertStringContainsString('connect-timeout', $mysqlSection);
+    }
+
+    public function test_restore_input_bounds_the_table_lock_wait(): void
+    {
+        // Root cause of the "restore spins for minutes" report: restoring drops and
+        // recreates every table, which needs an exclusive metadata lock, and MySQL's
+        // lock_wait_timeout defaults to 31536000s (a year). One other session with an
+        // open transaction stalled the restore until the process timeout fired.
+        Storage::fake('local');
+        $path = Storage::disk('local')->path('lock_probe.sql.gz');
+        $gz = gzopen($path, 'wb');
+        gzwrite($gz, "SELECT 1;\n");
+        gzclose($gz);
+
+        $service = app(\App\Services\DatabaseBackupService::class);
+        $method = new \ReflectionMethod($service, 'streamGzipFile');
+
+        $chunks = iterator_to_array($method->invoke($service, $path));
+        $prologue = $chunks[0];
+
+        $this->assertStringContainsString('SET SESSION lock_wait_timeout = 30', $prologue);
+        $this->assertStringContainsString('SET SESSION innodb_lock_wait_timeout = 30', $prologue);
+        $this->assertStringContainsString('SELECT 1;', implode('', $chunks), 'dump contents must still follow the prologue');
+    }
+
+    public function test_lock_wait_timeout_is_bounded_and_not_the_mysql_default(): void
+    {
+        $configured = (int) config('backup.lock_wait_timeout');
+
+        $this->assertGreaterThan(0, $configured);
+        $this->assertLessThan(
+            (int) config('backup.process_timeout'),
+            $configured,
+            'The lock wait must expire before the process timeout, so the admin gets the real reason.'
+        );
+    }
+
     // ── Schedule settings ────────────────────────────────────────────────────
 
     public function test_admin_can_update_schedule_settings(): void

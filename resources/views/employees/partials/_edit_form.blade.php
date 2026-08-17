@@ -87,6 +87,16 @@
                             class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
                             placeholder="e.g. 6">
                     </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Bank Holiday — Bank Share (%)</label>
+                        <input type="number" step="0.01" min="0" max="100" name="bh_bank_percent"
+                            value="{{ old('bh_bank_percent', $employee->bh_bank_percent) }}"
+                            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-slate-500/60 focus:border-slate-500 outline-none"
+                            placeholder="e.g. 40">
+                        <p class="mt-1 text-[11px] text-slate-400">
+                            Of the extra pay earned for working a bank holiday, this share goes to bank and the rest is cash. 0 means all cash.
+                        </p>
+                    </div>
                 </div>
 
                 <div>

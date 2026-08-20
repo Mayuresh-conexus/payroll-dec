@@ -4,7 +4,7 @@
 export function payrollPage() {
     return {
         items:          [],
-        totals:         { weeklyAmount: 0, cash: 0, bank: 0, bhCash: 0, bhBank: 0 },
+        totals:         { weeklyAmount: 0, cash: 0, bank: 0, bhAmount: 0, bhBank: 0 },
         openSettleModal: null,   // index of row whose settle modal is open
 
         get year()  { return window.payrollConfig?.year  ?? 0; },
@@ -150,8 +150,13 @@ export function payrollPage() {
                     bh_amount:            bhAmount,
                     bh_cash:              bhCash,
                     bh_bank:              bhBank,
-                    bh_cash_override:     row.bh_cash_override ?? null,
+                    bh_amount_derived:    Number(row.bh_amount_derived ?? bhAmount),
+                    bh_amount_override:   row.bh_amount_override ?? null,
+                    bh_bank_override:     row.bh_bank_override ?? null,
                     bh_bank_percent:      Number(row.bh_bank_percent || 0),
+                    // Set when a total is too small to fund the bank side, so the
+                    // row can warn before it is saved rather than after.
+                    bh_bank_reduced:      0,
                     prev_advance_balance: prevBalance,
                 };
             });
@@ -211,56 +216,87 @@ export function payrollPage() {
         /* ── bank-holiday split ──────────────────────────────────────────── */
 
         /**
-         * The premium is earned and never edited here — only how it divides. So
-         * each side absorbs the other, and the two always add back to bh_amount.
+         * The premium has two inputs — its total and the bank side — and cash is
+         * always what is left. Cash is not edited directly: it appears under
+         * Weekly Cash, which is where it is actually paid.
          *
-         * Changing the split changes what was earned in cash, so the row is
-         * re-settled afterwards: the bank transfer holds and cash takes the
-         * difference, which is where the premium's cash side is actually paid.
+         * Mirror of BankHolidayService::splitPremium. The server re-applies all
+         * of this on save, so nothing here is load-bearing for correctness; it
+         * exists so the figures on screen match what saving will produce.
          */
-        updateBhCash(index) {
-            const it     = this.items[index];
-            const amount = Number(it.bh_amount || 0);
-            let   cash   = Number(it.bh_cash || 0);
-            if (!isFinite(cash) || cash < 0) cash = 0;
-            if (cash > amount) cash = amount;
+        applyBhSplit(index) {
+            const it      = this.items[index];
+            const amount  = Math.max(0, Number(it.bh_amount || 0));
+            const percent = Number(it.bh_bank_percent || 0);
 
-            it.bh_cash = Math.round(cash * 100) / 100;
-            it.bh_bank = Math.round((amount - cash) * 100) / 100;
-            it.bh_cash_override = it.bh_cash;
-            this.resettleRow(index);
-        },
+            // The percentage applies to what was earned, not to a hand-set total,
+            // so raising the total moves cash and leaves the transfer alone.
+            const derived = Math.max(0, Number(it.bh_amount_derived || 0));
 
-        updateBhBank(index) {
-            const it     = this.items[index];
-            const amount = Number(it.bh_amount || 0);
-            let   bank   = Number(it.bh_bank || 0);
+            let bank = it.bh_bank_override !== null && it.bh_bank_override !== undefined
+                ? Number(it.bh_bank_override)
+                : Math.round(derived * percent / 100 * 100) / 100;
+
             if (!isFinite(bank) || bank < 0) bank = 0;
-            if (bank > amount) bank = amount;
+
+            // Cash cannot go negative, so a total cut below the bank share takes
+            // the difference out of bank. The row says so before it is saved.
+            it.bh_bank_reduced = bank > amount ? Math.round((bank - amount) * 100) / 100 : 0;
+            bank = Math.min(bank, amount);
 
             it.bh_bank = Math.round(bank * 100) / 100;
             it.bh_cash = Math.round((amount - bank) * 100) / 100;
-            it.bh_cash_override = it.bh_cash;
             this.resettleRow(index);
         },
 
-        /** Whether this row's split was set by hand rather than by the percentage. */
+        /** The total was typed: remember it, then re-divide. */
+        updateBhTotal(index) {
+            const it = this.items[index];
+            let total = Number(it.bh_amount || 0);
+            if (!isFinite(total) || total < 0) total = 0;
+
+            it.bh_amount = Math.round(total * 100) / 100;
+            it.bh_amount_override = it.bh_amount;
+            this.applyBhSplit(index);
+        },
+
+        /** The bank side was typed: remember it, then re-divide. */
+        updateBhBank(index) {
+            const it = this.items[index];
+            let bank = Number(it.bh_bank || 0);
+            if (!isFinite(bank) || bank < 0) bank = 0;
+
+            it.bh_bank_override = Math.round(bank * 100) / 100;
+            this.applyBhSplit(index);
+        },
+
+        /** How far a hand-set total moved the premium away from what was earned. */
+        bhDelta(index) {
+            const it = this.items[index];
+
+            if (it.bh_amount_override === null || it.bh_amount_override === undefined) {
+                return 0;
+            }
+
+            return Math.round((Number(it.bh_amount || 0) - Number(it.bh_amount_derived || 0)) * 100) / 100;
+        },
+
+        /** Whether anything about this row's premium was set by hand. */
         bhOverridden(index) {
-            return this.items[index].bh_cash_override !== null
-                && this.items[index].bh_cash_override !== undefined;
+            const it = this.items[index];
+
+            return (it.bh_amount_override !== null && it.bh_amount_override !== undefined)
+                || (it.bh_bank_override !== null && it.bh_bank_override !== undefined);
         },
 
-        /** Hand the split back to the employee's percentage. Mirror of BankHolidayService::splitPremium. */
+        /** Hand the premium back to the holidays worked and the employee's percentage. */
         resetBhSplit(index) {
-            const it      = this.items[index];
-            const amount  = Number(it.bh_amount || 0);
-            const percent = Number(it.bh_bank_percent || 0);
-            const bank    = Math.round(amount * percent / 100 * 100) / 100;
+            const it = this.items[index];
 
-            it.bh_bank = bank;
-            it.bh_cash = Math.round((amount - bank) * 100) / 100;
-            it.bh_cash_override = null;
-            this.resettleRow(index);
+            it.bh_amount_override = null;
+            it.bh_bank_override = null;
+            it.bh_amount = Math.round(Number(it.bh_amount_derived || 0) * 100) / 100;
+            this.applyBhSplit(index);
         },
 
         /**
@@ -341,18 +377,18 @@ export function payrollPage() {
         },
 
         recalculateTotals() {
-            let weekly = 0, cash = 0, bank = 0, bhCash = 0, bhBank = 0;
+            let weekly = 0, cash = 0, bank = 0, bhAmount = 0, bhBank = 0;
             for (const it of this.items) {
                 weekly += Number(it.weekly_amount || 0);
                 cash   += Number(it.cash          || 0);
                 bank   += Number(it.bank          || 0);
-                bhCash += Number(it.bh_cash       || 0);
+                bhAmount += Number(it.bh_amount   || 0);
                 bhBank += Number(it.bh_bank       || 0);
             }
             this.totals.weeklyAmount = weekly;
             this.totals.cash         = cash;
             this.totals.bank         = bank;
-            this.totals.bhCash       = bhCash;
+            this.totals.bhAmount     = bhAmount;
             this.totals.bhBank       = bhBank;
         },
     };

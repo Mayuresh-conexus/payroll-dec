@@ -44,7 +44,7 @@
                         <th colspan="2" class="{{ $groupEdge }} px-4 py-2 text-center text-violet-700">
                             Bank Holiday
                             <span class="ml-1 text-violet-300 font-normal normal-case"
-                                  title="Double pay for every bank holiday worked this month, cleared in this week. The cash share is included in Weekly Cash; the bank share is a separate transfer on top of Weekly Bank.">&#9432;</span>
+                                  title="Double pay for every bank holiday worked this month, cleared in this week. The total and the bank share can both be edited; whatever is left of the total is paid in cash, and shows under Weekly Cash.">&#9432;</span>
                         </th>
                     @endif
                     @if ($showLeaveColumn)
@@ -66,7 +66,7 @@
                     <th class="w-[115px] px-4 py-2 text-right font-medium normal-case">Cash</th>
                     <th class="w-[115px] px-4 py-2 text-right font-medium normal-case">Bank</th>
                     @if ($showBh)
-                        <th class="{{ $groupEdge }} w-[100px] px-4 py-2 text-right font-medium normal-case text-violet-700">Cash</th>
+                        <th class="{{ $groupEdge }} w-[100px] px-4 py-2 text-right font-medium normal-case text-violet-700">Total</th>
                         <th class="w-[100px] px-4 py-2 text-right font-medium normal-case text-violet-700">Bank</th>
                     @endif
                 </tr>
@@ -229,51 +229,72 @@
                             @endif
                         </td>
 
-                        {{-- BH split — the premium itself is earned from the holidays
-                             worked and is never edited, but how it divides can be set by
-                             hand for a week. Each side absorbs the other, so the two
-                             always add back to the premium. --}}
+                        {{-- BH — two inputs and a derived remainder. The total is
+                             normally what the holidays worked come to, and the bank
+                             side is normally the employee's percentage of it; either
+                             can be set by hand. Cash is never edited here because it
+                             is not paid here — it appears under Weekly Cash, which is
+                             where it actually reaches the employee. --}}
                         @if ($showBh)
+                            @php
+                                $bhEditable = $rowEditable && ((float) ($row['bh_amount'] ?? 0) > 0 || $rowHasPremium);
+                                $bhInput = 'no-spinner w-20 text-right font-mono text-sm text-violet-700 border border-violet-200 rounded-lg px-2 py-1.5 bg-violet-50/40 focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 outline-none transition-all shadow-sm';
+                            @endphp
+
+                            {{-- Total --}}
                             <td class="{{ $groupEdge }} px-4 py-3 text-right align-top">
-                                @if ($rowHasPremium && $rowEditable)
-                                    <input type="number" min="0" max="{{ $row['bh_amount'] }}" step="0.01"
-                                        x-model.number="items[{{ $index }}].bh_cash"
-                                        @input="updateBhCash({{ $index }})"
+                                @if ($bhEditable)
+                                    <input type="number" min="0" step="0.01"
+                                        x-model.number="items[{{ $index }}].bh_amount"
+                                        @input="updateBhTotal({{ $index }})"
                                         @focus="$event.target.select()"
                                         @keydown.enter.prevent="focusSiblingRow($event, $event.shiftKey ? -1 : 1)"
-                                        data-col="bh_cash" data-row="{{ $index }}"
-                                        title="Cash side of the {{ number_format($row['bh_amount'], 2) }} premium. Raising it lowers the bank side by the same amount."
-                                        class="no-spinner w-20 text-right font-mono text-sm text-violet-700 border border-violet-200 rounded-lg px-2 py-1.5 bg-violet-50/40 focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 outline-none transition-all shadow-sm">
+                                        data-col="bh_total" data-row="{{ $index }}"
+                                        title="The whole premium. Normally double pay for the holidays worked; raise or lower it to pay something else, and the difference goes to cash."
+                                        class="{{ $bhInput }}">
+
+                                    {{-- What the change was, not just that there was one:
+                                         an audit reader needs the number. --}}
+                                    <template x-if="bhDelta({{ $index }}) !== 0">
+                                        <div class="mt-1 flex items-center justify-end gap-1">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold whitespace-nowrap"
+                                                :title="'Set by hand. The holidays worked come to ' + formatMoney(items[{{ $index }}].bh_amount_derived) + '. Refreshing the week keeps this.'">
+                                                <span x-text="(bhDelta({{ $index }}) > 0 ? '+' : '') + formatMoney(bhDelta({{ $index }}))"></span>
+                                            </span>
+                                            <button type="button" @click="resetBhSplit({{ $index }})"
+                                                class="text-[10px] font-medium text-slate-400 hover:text-violet-700 transition"
+                                                title="Put the premium back to the holidays worked">
+                                                reset
+                                            </button>
+                                        </div>
+                                    </template>
                                 @elseif ($rowHasPremium)
-                                    <span class="font-mono text-sm text-violet-700">{{ number_format($row['bh_cash'], 2) }}</span>
+                                    <span class="font-mono text-sm text-violet-700">{{ number_format($row['bh_amount'], 2) }}</span>
                                 @else
                                     <span class="text-slate-300 text-sm select-none">—</span>
                                 @endif
                             </td>
+
+                            {{-- Bank --}}
                             <td class="px-4 py-3 text-right align-top">
-                                @if ($rowHasPremium && $rowEditable)
-                                    <input type="number" min="0" max="{{ $row['bh_amount'] }}" step="0.01"
+                                @if ($bhEditable)
+                                    <input type="number" min="0" step="0.01"
                                         x-model.number="items[{{ $index }}].bh_bank"
                                         @input="updateBhBank({{ $index }})"
                                         @focus="$event.target.select()"
                                         @keydown.enter.prevent="focusSiblingRow($event, $event.shiftKey ? -1 : 1)"
                                         data-col="bh_bank" data-row="{{ $index }}"
-                                        title="Bank side of the {{ number_format($row['bh_amount'], 2) }} premium, transferred on top of the weekly bank amount."
-                                        class="no-spinner w-20 text-right font-mono text-sm text-violet-700 border border-violet-200 rounded-lg px-2 py-1.5 bg-violet-50/40 focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 outline-none transition-all shadow-sm">
+                                        title="The share transferred to the bank, on top of the weekly bank amount. The rest of the total is paid in cash."
+                                        class="{{ $bhInput }}">
 
-                                    {{-- Only shown once the percentage is no longer driving
-                                         the split, so an ordinary row stays quiet. --}}
-                                    <template x-if="bhOverridden({{ $index }})">
-                                        <div class="mt-1 flex items-center justify-end gap-1">
-                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold"
-                                                title="Set by hand — the employee's {{ number_format($row['bh_bank_percent'] ?? 0, 2) }}% is not deciding this week. Refreshing the week will keep it.">
-                                                edited
+                                    {{-- Shown while editing, not discovered afterwards: this
+                                         is a figure the admin did not type being changed. --}}
+                                    <template x-if="items[{{ $index }}].bh_bank_reduced > 0">
+                                        <div class="mt-1 flex items-center justify-end">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-semibold whitespace-nowrap"
+                                                :title="'The total is smaller than the bank share, so ' + formatMoney(items[{{ $index }}].bh_bank_reduced) + ' was taken off the bank to fit. Cash is 0.'">
+                                                bank cut <span class="ml-0.5" x-text="formatMoney(items[{{ $index }}].bh_bank_reduced)"></span>
                                             </span>
-                                            <button type="button" @click="resetBhSplit({{ $index }})"
-                                                class="text-[10px] font-medium text-slate-400 hover:text-violet-700 transition"
-                                                title="Put the split back to {{ number_format($row['bh_bank_percent'] ?? 0, 2) }}% bank">
-                                                reset
-                                            </button>
                                         </div>
                                     </template>
                                 @elseif ($rowHasPremium)
@@ -370,10 +391,11 @@
                             <input type="hidden" name="items[{{ $index }}][bank]"                     :value="items[{{ $index }}].bank">
                             {{-- The premium is derived and posts as it was calculated; the
                                  split follows whatever the admin left in the two boxes. --}}
-                            <input type="hidden" name="items[{{ $index }}][bh_amount]"                value="{{ $row['bh_amount'] ?? 0 }}">
+                            <input type="hidden" name="items[{{ $index }}][bh_amount]"                value="{{ $row['bh_amount_derived'] ?? $row['bh_amount'] ?? 0 }}">
                             <input type="hidden" name="items[{{ $index }}][bh_cash]"                  :value="items[{{ $index }}].bh_cash">
                             <input type="hidden" name="items[{{ $index }}][bh_bank]"                  :value="items[{{ $index }}].bh_bank">
-                            <input type="hidden" name="items[{{ $index }}][bh_cash_override]"         :value="items[{{ $index }}].bh_cash_override ?? ''">
+                            <input type="hidden" name="items[{{ $index }}][bh_amount_override]"       :value="items[{{ $index }}].bh_amount_override ?? ''">
+                            <input type="hidden" name="items[{{ $index }}][bh_bank_override]"         :value="items[{{ $index }}].bh_bank_override ?? ''">
                             <input type="hidden" name="items[{{ $index }}][leave_days]"               value="{{ $row['leave_days'] ?? 0 }}">
                             <input type="hidden" name="items[{{ $index }}][leave_hours]"              value="{{ $row['leave_hours'] ?? 0 }}">
                             <input type="hidden" name="items[{{ $index }}][leave_amount]"             value="{{ $row['leave_amount'] ?? 0 }}">
@@ -409,7 +431,7 @@
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.cash)"></span></td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.bank)"></span></td>
                         @if ($showBh)
-                            <td class="{{ $groupEdge }} px-4 py-3 text-right font-semibold text-violet-700"><span x-text="formatMoney(totals.bhCash)"></span></td>
+                            <td class="{{ $groupEdge }} px-4 py-3 text-right font-semibold text-violet-700"><span x-text="formatMoney(totals.bhAmount)"></span></td>
                             <td class="px-4 py-3 text-right font-semibold text-violet-700"><span x-text="formatMoney(totals.bhBank)"></span></td>
                         @endif
                         @if ($showLeaveColumn)

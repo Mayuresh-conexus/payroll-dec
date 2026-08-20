@@ -111,11 +111,11 @@ class AttendanceService
         // last day, so an ordinary week settles nothing. Only the cash share counts
         // as earnings — the bank share rides alongside as its own transfer.
         //
-        // A split the admin set by hand survives this recalculation: refreshing a
+        // Figures the admin set by hand survive this recalculation: refreshing a
         // week to pick up an attendance change must not silently undo a deliberate
-        // decision about how the premium was paid. Only the amount is re-derived.
+        // decision about what the premium was, or how it was paid.
         [$bhAmount, $bhCash, $bhBank, $bhPercent] = $employee
-            ? $this->bankHolidays->settlementFor($employee, $year, $week, $this->bhCashOverrideFor($employeeId, $year, $week))
+            ? $this->bankHolidays->settlementFor($employee, $year, $week, ...$this->bhOverridesFor($employeeId, $year, $week))
             : [0.0, 0.0, 0.0, 0.0];
 
         // Leave is paid like the days it replaces, so it joins the week's earnings
@@ -227,7 +227,7 @@ class AttendanceService
         // Same monthly settlement as daily staff; every hour worked on a holiday is
         // doubled, overtime included.
         [$bhAmount, $bhCash, $bhBank, $bhPercent] = $employee
-            ? $this->bankHolidays->settlementFor($employee, $year, $week)
+            ? $this->bankHolidays->settlementFor($employee, $year, $week, ...$this->bhOverridesFor($employeeId, $year, $week))
             : [0.0, 0.0, 0.0, 0.0];
 
         // Leave is paid like the hours it replaces, so it joins the week's earnings
@@ -286,17 +286,23 @@ class AttendanceService
      * The hand-set cash side of this week's premium, or null if the employee's
      * percentage is still deciding it.
      */
-    private function bhCashOverrideFor(int $employeeId, int $year, int $week): ?float
+    /**
+     * @return array{0: float|null, 1: float|null} amount override, bank override
+     */
+    private function bhOverridesFor(int $employeeId, int $year, int $week): array
     {
-        $override = PayrollItem::query()
+        $item = PayrollItem::query()
             ->where('employee_id', $employeeId)
             ->whereHas('run', fn ($q) => $q
                 ->where('year', $year)
                 ->where('week_number', $week)
                 ->where('period_type', 'weekly'))
-            ->value('bh_cash_override');
+            ->first(['bh_amount_override', 'bh_bank_override']);
 
-        return $override === null ? null : (float) $override;
+        return [
+            $item?->bh_amount_override === null ? null : (float) $item->bh_amount_override,
+            $item?->bh_bank_override === null ? null : (float) $item->bh_bank_override,
+        ];
     }
 
     /**

@@ -92,28 +92,37 @@ class BankHolidayService
      *
      * @return array{0: float, 1: float, 2: float} cash, bank, effective bank percent
      */
-    public function splitPremium(float $amount, float $percent, ?float $cashOverride = null): array
-    {
+    public function splitPremium(
+        float $derivedAmount,
+        float $percent,
+        ?float $amountOverride = null,
+        ?float $bankOverride = null
+    ): array {
+        $amount = round(max(0.0, $amountOverride ?? $derivedAmount), 2);
+
         if ($amount <= 0) {
-            return [0.0, 0.0, $percent];
+            return [0.0, 0.0, 0.0, $percent];
         }
 
-        if ($cashOverride !== null) {
-            $cash = round(max(0.0, min($cashOverride, $amount)), 2);
-            $bank = round($amount - $cash, 2);
+        // The percentage applies to what the holidays actually earned, not to a
+        // hand-set total. That is what makes editing the total move cash and
+        // leave the bank transfer alone: paying someone extra is a decision about
+        // what they are handed, not about how much of it goes to their account.
+        $bank = round($bankOverride ?? ($derivedAmount * $percent / 100), 2);
+        $bank = max(0.0, $bank);
 
-            // Report the split the employee actually got, not the one the
-            // percentage would have produced, so payslips stay honest.
-            return [$cash, $bank, round($bank / $amount * 100, 2)];
-        }
-
-        $bank = round($amount * $percent / 100, 2);
+        // Cash cannot go negative, so a total cut below the bank share takes the
+        // difference out of bank instead. The admin is warned before saving that
+        // this is happening — it changes a figure they did not type.
+        $bank = min($bank, $amount);
 
         // Subtract rather than round a second time, so cash + bank always equals
         // the premium exactly and no cent is created or lost.
         $cash = round($amount - $bank, 2);
 
-        return [$cash, $bank, $percent];
+        // Report the split the employee actually got, not the one the percentage
+        // would have produced, so payslips stay honest.
+        return [$cash, $bank, $amount, round($bank / $amount * 100, 2)];
     }
 
     /**
@@ -123,16 +132,22 @@ class BankHolidayService
      * week's earnings — the bank share is a separate transfer on top of the
      * employee's fixed weekly bank amount.
      *
-     * @param  float|null  $cashOverride  a hand-set cash side, if the week has one
-     * @return array{0: float, 1: float, 2: float, 3: float} amount, cash, bank, percent
+     * @param  float|null  $amountOverride  a hand-set premium total, if the week has one
+     * @param  float|null  $bankOverride  a hand-set bank side, if the week has one
+     * @return array{0: float, 1: float, 2: float, 3: float, 4: float} amount, cash, bank, percent, derived amount
      */
-    public function settlementFor(Employee $employee, int $year, int $week, ?float $cashOverride = null): array
-    {
+    public function settlementFor(
+        Employee $employee,
+        int $year,
+        int $week,
+        ?float $amountOverride = null,
+        ?float $bankOverride = null
+    ): array {
         $percent = (float) ($employee->bh_bank_percent ?? 0);
         $month = $this->settledMonth($year, $week);
 
         if (! $month) {
-            return [0.0, 0.0, 0.0, $percent];
+            return [0.0, 0.0, 0.0, $percent, 0.0];
         }
 
         $total = 0.0;
@@ -141,14 +156,17 @@ class BankHolidayService
             $total += $this->premiumForDate($employee, $date);
         }
 
-        if ($total <= 0) {
-            return [0.0, 0.0, 0.0, $percent];
+        $derived = round($total, 2);
+
+        // A week with no holiday worked still settles an overridden total: the
+        // whole point of the override is paying something the days do not imply.
+        if ($derived <= 0 && ($amountOverride === null || $amountOverride <= 0)) {
+            return [0.0, 0.0, 0.0, $percent, 0.0];
         }
 
-        $amount = round($total, 2);
-        [$cash, $bank, $effectivePercent] = $this->splitPremium($amount, $percent, $cashOverride);
+        [$cash, $bank, $amount, $effectivePercent] = $this->splitPremium($derived, $percent, $amountOverride, $bankOverride);
 
-        return [$amount, $cash, $bank, $effectivePercent];
+        return [$amount, $cash, $bank, $effectivePercent, $derived];
     }
 
     /**

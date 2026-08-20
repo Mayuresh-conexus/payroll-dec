@@ -951,7 +951,8 @@ class PayrollWeekTest extends TestCase
         float $bank,
         float $recover = 0,
         float $prevBalance = 0,
-        float|string|null $bhCashOverride = null
+        float|string|null $bhAmountOverride = null,
+        float|string|null $bhBankOverride = null
     ): PayrollItem {
         $this->post('/payroll/save-week', [
             'year' => 2026,
@@ -965,7 +966,8 @@ class PayrollWeekTest extends TestCase
                 'bh_amount' => 135,
                 'bh_cash' => 49,
                 'bh_bank' => 86,
-                'bh_cash_override' => $bhCashOverride,
+                'bh_amount_override' => $bhAmountOverride,
+                'bh_bank_override' => $bhBankOverride,
                 'recover' => $recover,
                 'prev_advance_balance' => $prevBalance,
             ]],
@@ -1118,32 +1120,81 @@ class PayrollWeekTest extends TestCase
         $this->assertStringNotContainsString('updateBhCash', $html, 'and nothing to edit either');
     }
 
-    public function test_the_bank_holiday_split_can_be_set_by_hand_and_the_bank_side_follows(): void
+    public function test_the_bank_side_can_be_set_by_hand_and_cash_takes_the_rest(): void
     {
-        // The premium is earned, not entered: whatever cash is set to, bank is the
-        // rest of the 135 and the two still add up.
+        // The split is two figures and a remainder: bank is typed, cash is
+        // whatever the total leaves behind.
         $emp = $this->settlementWeekEmployee();
 
-        // Raising the premium's cash side raises what is earned, so the page
-        // re-settles cash against the unchanged transfer before posting: the
-        // 870 now payable less the 500 bank leaves 370 in hand.
-        $item = $this->saveSettlementWeekCash($emp, cash: 370, bank: 500, bhCashOverride: 60);
+        $item = $this->saveSettlementWeekCash($emp, cash: 335, bank: 500, bhBankOverride: 110);
 
         $this->assertEqualsWithDelta(135.0, (float) $item->bh_amount, 0.01, 'the premium itself is untouched');
-        $this->assertEqualsWithDelta(60.0, (float) $item->bh_cash, 0.01);
-        $this->assertEqualsWithDelta(75.0, (float) $item->bh_bank, 0.01, 'the bank side absorbed the change');
-        $this->assertEqualsWithDelta(60.0, (float) $item->bh_cash_override, 0.01, 'remembered as hand-set');
+        $this->assertEqualsWithDelta(110.0, (float) $item->bh_bank, 0.01);
+        $this->assertEqualsWithDelta(25.0, (float) $item->bh_cash, 0.01, 'cash is the remainder');
         $this->assertEqualsWithDelta(
             (float) $item->bh_amount,
             (float) $item->bh_cash + (float) $item->bh_bank,
             0.01,
             'the split still accounts for the whole premium'
         );
+    }
 
-        // Gross follows the new cash side: 810 + 60.
-        $this->assertEqualsWithDelta(870.0, (float) $item->gross_amount, 0.01);
-        $this->assertEqualsWithDelta(370.0, (float) $item->cash_amount, 0.01, '310 weekly surplus + the 60');
-        $this->assertEqualsWithDelta(500.0, (float) $item->bank_amount, 0.01, 'the weekly transfer is unmoved');
+    public function test_raising_the_total_pays_the_extra_in_cash(): void
+    {
+        // The premium can be set to something the days do not imply. Bank is the
+        // fixed transfer, so anything added lands in the cash the employee is handed.
+        $emp = $this->settlementWeekEmployee();
+
+        // 810 weekly + 114 BH cash, less the 500 transfer.
+        $item = $this->saveSettlementWeekCash($emp, cash: 424, bank: 500, bhAmountOverride: 200);
+
+        $this->assertEqualsWithDelta(200.0, (float) $item->bh_amount, 0.01);
+        $this->assertEqualsWithDelta(200.0, (float) $item->bh_amount_override, 0.01, 'remembered as hand-set');
+        $this->assertEqualsWithDelta(86.0, (float) $item->bh_bank, 0.01, 'the bank share is unmoved');
+        $this->assertEqualsWithDelta(114.0, (float) $item->bh_cash, 0.01, 'the whole 65 increase went to cash');
+        $this->assertEqualsWithDelta(924.0, (float) $item->gross_amount, 0.01, '810 + 114');
+    }
+
+    public function test_lowering_the_total_takes_it_out_of_cash_first(): void
+    {
+        $emp = $this->settlementWeekEmployee();
+
+        $item = $this->saveSettlementWeekCash($emp, cash: 324, bank: 500, bhAmountOverride: 100);
+
+        $this->assertEqualsWithDelta(100.0, (float) $item->bh_amount, 0.01);
+        $this->assertEqualsWithDelta(86.0, (float) $item->bh_bank, 0.01, 'bank is still fully funded');
+        $this->assertEqualsWithDelta(14.0, (float) $item->bh_cash, 0.01, 'cash absorbed the whole cut');
+    }
+
+    public function test_a_total_below_the_bank_share_cuts_the_bank_and_zeroes_cash(): void
+    {
+        // Cash cannot go negative, so the rest of the reduction comes out of the
+        // bank side. The page warns before saving that this is what will happen.
+        $emp = $this->settlementWeekEmployee();
+
+        $item = $this->saveSettlementWeekCash($emp, cash: 310, bank: 500, bhAmountOverride: 50);
+
+        $this->assertEqualsWithDelta(50.0, (float) $item->bh_amount, 0.01);
+        $this->assertEqualsWithDelta(0.0, (float) $item->bh_cash, 0.01, 'nothing left to hand over');
+        $this->assertEqualsWithDelta(50.0, (float) $item->bh_bank, 0.01, 'bank cut from 86 to fit the total');
+        $this->assertEqualsWithDelta(
+            (float) $item->bh_amount,
+            (float) $item->bh_cash + (float) $item->bh_bank,
+            0.01
+        );
+    }
+
+    public function test_a_hand_set_bank_share_larger_than_the_total_is_cut_to_fit(): void
+    {
+        $emp = $this->settlementWeekEmployee();
+
+        $item = $this->saveSettlementWeekCash($emp, cash: 310, bank: 500, bhBankOverride: 500);
+
+        $this->assertEqualsWithDelta(135.0, (float) $item->bh_bank, 0.01, 'capped at the whole premium');
+        $this->assertEqualsWithDelta(0.0, (float) $item->bh_cash, 0.01);
+        // Stored as what it became, so reloading does not keep re-applying an
+        // override the total cannot fund.
+        $this->assertEqualsWithDelta(135.0, (float) $item->bh_bank_override, 0.01);
     }
 
     public function test_an_overridden_split_records_the_percentage_actually_paid(): void
@@ -1152,51 +1203,40 @@ class PayrollWeekTest extends TestCase
         // the split the employee got rather than the one the setting would give.
         $emp = $this->settlementWeekEmployee();
 
-        $item = $this->saveSettlementWeekCash($emp, cash: 359, bank: 500, bhCashOverride: 60);
+        $item = $this->saveSettlementWeekCash($emp, cash: 335, bank: 500, bhBankOverride: 75);
 
         // 75 of 135 went to bank.
         $this->assertEqualsWithDelta(55.56, (float) $item->applied_bh_bank_percent, 0.01);
     }
 
-    public function test_an_override_larger_than_the_premium_is_clamped_to_it(): void
-    {
-        // Attendance can change after a split is set, so a stale override must
-        // never pay out more cash than the premium actually earned.
-        $emp = $this->settlementWeekEmployee();
-
-        $item = $this->saveSettlementWeekCash($emp, cash: 359, bank: 500, bhCashOverride: 500);
-
-        $this->assertEqualsWithDelta(135.0, (float) $item->bh_cash, 0.01, 'capped at the whole premium');
-        $this->assertEqualsWithDelta(0.0, (float) $item->bh_bank, 0.01);
-    }
-
-    public function test_a_hand_set_split_survives_a_week_refresh(): void
+    public function test_hand_set_premium_figures_survive_a_week_refresh(): void
     {
         // Refreshing re-derives the premium from attendance. It must not quietly
-        // undo a deliberate decision about how that premium was paid.
+        // undo a deliberate decision about what was paid, or how.
         $emp = $this->settlementWeekEmployee();
-        $this->saveSettlementWeekCash($emp, cash: 359, bank: 500, bhCashOverride: 60);
+        $this->saveSettlementWeekCash($emp, cash: 424, bank: 500, bhAmountOverride: 200, bhBankOverride: 90);
 
         $this->post('/payroll/refresh-week', ['year' => 2026, 'week' => 31])->assertRedirect();
 
         $item = PayrollItem::where('employee_id', $emp->id)->firstOrFail();
 
-        $this->assertEqualsWithDelta(60.0, (float) $item->bh_cash, 0.01, 'the hand-set split held');
-        $this->assertEqualsWithDelta(75.0, (float) $item->bh_bank, 0.01);
-        $this->assertEqualsWithDelta(60.0, (float) $item->bh_cash_override, 0.01);
-        $this->assertEqualsWithDelta(870.0, (float) $item->gross_amount, 0.01, 'and gross was rebuilt around it');
+        $this->assertEqualsWithDelta(200.0, (float) $item->bh_amount, 0.01, 'the hand-set total held');
+        $this->assertEqualsWithDelta(90.0, (float) $item->bh_bank, 0.01, 'and so did the split');
+        $this->assertEqualsWithDelta(110.0, (float) $item->bh_cash, 0.01);
     }
 
-    public function test_clearing_the_override_hands_the_split_back_to_the_percentage(): void
+    public function test_clearing_the_overrides_hands_the_premium_back_to_attendance(): void
     {
         $emp = $this->settlementWeekEmployee();
-        $this->saveSettlementWeekCash($emp, cash: 359, bank: 500, bhCashOverride: 60);
+        $this->saveSettlementWeekCash($emp, cash: 424, bank: 500, bhAmountOverride: 200, bhBankOverride: 90);
 
-        // Reset posts an empty override, the same as the reset button does.
-        $item = $this->saveSettlementWeekCash($emp, cash: 359, bank: 500, bhCashOverride: '');
+        // Reset posts empty overrides, the same as the reset button does.
+        $item = $this->saveSettlementWeekCash($emp, cash: 359, bank: 500, bhAmountOverride: '', bhBankOverride: '');
 
-        $this->assertNull($item->bh_cash_override);
-        $this->assertEqualsWithDelta(49.0, (float) $item->bh_cash, 0.01, 'back to 63.7% bank');
+        $this->assertNull($item->bh_amount_override);
+        $this->assertNull($item->bh_bank_override);
+        $this->assertEqualsWithDelta(135.0, (float) $item->bh_amount, 0.01, 'back to the holidays worked');
+        $this->assertEqualsWithDelta(49.0, (float) $item->bh_cash, 0.01, 'and to 63.7% bank');
         $this->assertEqualsWithDelta(86.0, (float) $item->bh_bank, 0.01);
         $this->assertEqualsWithDelta(63.7, (float) $item->applied_bh_bank_percent, 0.01);
     }
@@ -1207,20 +1247,25 @@ class PayrollWeekTest extends TestCase
 
         $item = $this->saveSettlementWeekCash($emp, cash: 359, bank: 500);
 
-        $this->assertNull($item->bh_cash_override);
+        $this->assertNull($item->bh_amount_override);
+        $this->assertNull($item->bh_bank_override);
         $this->assertEqualsWithDelta(49.0, (float) $item->bh_cash, 0.01);
         $this->assertEqualsWithDelta(86.0, (float) $item->bh_bank, 0.01);
     }
 
-    public function test_the_payroll_page_offers_the_split_as_editable_fields(): void
+    public function test_the_payroll_page_offers_the_total_and_bank_but_not_cash(): void
     {
+        // Cash is not edited in the BH group any more: it is a remainder, and it
+        // is paid under Weekly Cash, which is where it is shown.
         $emp = $this->settlementWeekEmployee();
 
         $html = $this->get('/payroll?year=2026&week=31')->assertOk()->getContent();
 
-        $this->assertStringContainsString('updateBhCash', $html);
+        $this->assertStringContainsString('updateBhTotal', $html);
         $this->assertStringContainsString('updateBhBank', $html);
-        $this->assertStringContainsString('resetBhSplit', $html, 'and a way back to the percentage');
+        $this->assertStringContainsString('resetBhSplit', $html, 'and a way back to what was earned');
+        $this->assertStringNotContainsString('updateBhCash', $html, 'cash is derived, not typed');
+        $this->assertStringContainsString('bh_bank_reduced', $html, 'the bank-cut warning is on the page');
     }
 
     public function test_lowering_cash_moves_the_difference_into_bank(): void

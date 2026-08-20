@@ -51,9 +51,10 @@ class SaveWeekPayrollRequest extends FormRequest
             'items.*.bh_amount' => 'nullable|numeric|min:0',
             'items.*.bh_cash' => 'nullable|numeric|min:0',
             'items.*.bh_bank' => 'nullable|numeric|min:0',
-            // A hand-set cash side of the premium. The controller clamps it to the
-            // premium actually earned, so only the sign is worth rejecting here.
-            'items.*.bh_cash_override' => 'nullable|numeric|min:0',
+            // Hand-set premium figures. The controller clamps them against each
+            // other, so only the sign is worth rejecting here.
+            'items.*.bh_amount_override' => 'nullable|numeric|min:0',
+            'items.*.bh_bank_override' => 'nullable|numeric|min:0',
             'items.*.leave_days' => 'nullable|numeric|min:0',
             'items.*.leave_hours' => 'nullable|numeric|min:0',
             'items.*.leave_amount' => 'nullable|numeric|min:0',

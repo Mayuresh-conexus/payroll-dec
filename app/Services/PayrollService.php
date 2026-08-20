@@ -82,7 +82,7 @@ class PayrollService
             // Mirror of AttendanceService: this method derives gross independently,
             // so a settlement known only to the other service would vanish here.
             // Only the cash share is earnings; the bank share is its own transfer.
-            [$bhAmount, $bhCash, $bhBank] = $bankHolidays->settlementFor($employee, $year, $week);
+            [$bhAmount, $bhCash, $bhBank, , $bhDerived] = $bankHolidays->settlementFor($employee, $year, $week);
             [$leaveDays, $leaveHours, $leaveAmount] = $leaves->weekPayFor($employee, $year, $week);
 
             // Mirror of AttendanceService: the week's own earnings first, with the
@@ -104,7 +104,9 @@ class PayrollService
                 'bh_amount' => $bhAmount,
                 'bh_cash' => $bhCash,
                 'bh_bank' => $bhBank,
-                'bh_cash_override' => null,
+                'bh_amount_derived' => $bhDerived,
+                'bh_amount_override' => null,
+                'bh_bank_override' => null,
                 'bh_bank_percent' => (float) ($employee->bh_bank_percent ?? 0),
                 'leave_days' => $leaveDays,
                 'leave_hours' => $leaveHours,
@@ -148,7 +150,7 @@ class PayrollService
             $rate = $employee->rateAt($weekStart, 'hourly_rate') ?? $employee->hourly_rate ?? 0;
             $bankAmountFix = $employee->bank_transfer_fix_amount ?? 0;
 
-            [$bhAmount, $bhCash, $bhBank] = $bankHolidays->settlementFor($employee, $year, $week);
+            [$bhAmount, $bhCash, $bhBank, , $bhDerived] = $bankHolidays->settlementFor($employee, $year, $week);
             [$leaveDays, $leaveHours, $leaveAmount] = $leaves->weekPayFor($employee, $year, $week);
 
             $weekEarnings = ($hours * $rate) + ($ot * $rate) + $leaveAmount;
@@ -168,7 +170,9 @@ class PayrollService
                 'bh_amount' => $bhAmount,
                 'bh_cash' => $bhCash,
                 'bh_bank' => $bhBank,
-                'bh_cash_override' => null,
+                'bh_amount_derived' => $bhDerived,
+                'bh_amount_override' => null,
+                'bh_bank_override' => null,
                 'bh_bank_percent' => (float) ($employee->bh_bank_percent ?? 0),
                 'leave_days' => $leaveDays,
                 'leave_hours' => $leaveHours,
@@ -305,7 +309,11 @@ class PayrollService
 
                 // Leave pay is already inside gross_amount/weekly_amount — these
                 // are carried through only so the breakdown survives a save.
-                $bhCashOverride = $item->bh_cash_override === null ? null : (float) $item->bh_cash_override;
+                $bhAmountOverride = $item->bh_amount_override === null ? null : (float) $item->bh_amount_override;
+                $bhBankOverride = $item->bh_bank_override === null ? null : (float) $item->bh_bank_override;
+                // What the holidays worked actually came to, so the page can say
+                // how far a hand-set total moved it.
+                $bhDerived = (float) ($rowsByKey[$key]['bh_amount_derived'] ?? $item->bh_amount ?? 0);
                 $leaveDays = (float) ($item->leave_days ?? 0);
                 $leaveHours = (float) ($item->leave_hours ?? 0);
                 $leaveAmount = (float) ($item->leave_amount ?? 0);
@@ -345,7 +353,9 @@ class PayrollService
                         'bh_amount' => $bhAmount,
                         'bh_cash' => $bhCash,
                         'bh_bank' => $bhBank,
-                        'bh_cash_override' => $bhCashOverride,
+                        'bh_amount_derived' => $bhDerived,
+                        'bh_amount_override' => $bhAmountOverride,
+                        'bh_bank_override' => $bhBankOverride,
                         'bh_bank_percent' => (float) ($employee->bh_bank_percent ?? 0),
                         'leave_days' => $leaveDays,
                         'leave_hours' => $leaveHours,
@@ -397,7 +407,9 @@ class PayrollService
                     $row['bh_amount'] = $bhAmount;
                     $row['bh_cash'] = $bhCash;
                     $row['bh_bank'] = $bhBank;
-                    $row['bh_cash_override'] = $bhCashOverride;
+                    $row['bh_amount_derived'] = $bhDerived;
+                    $row['bh_amount_override'] = $bhAmountOverride;
+                    $row['bh_bank_override'] = $bhBankOverride;
                     $row['leave_days'] = $leaveDays;
                     $row['leave_hours'] = $leaveHours;
                     $row['leave_amount'] = $leaveAmount;
@@ -441,7 +453,9 @@ class PayrollService
                         'bh_amount' => $bhAmount,
                         'bh_cash' => $bhCash,
                         'bh_bank' => $bhBank,
-                        'bh_cash_override' => $bhCashOverride,
+                        'bh_amount_derived' => $bhDerived,
+                        'bh_amount_override' => $bhAmountOverride,
+                        'bh_bank_override' => $bhBankOverride,
                         'bh_bank_percent' => (float) ($employee->bh_bank_percent ?? 0),
                         'leave_days' => $leaveDays,
                         'leave_hours' => $leaveHours,

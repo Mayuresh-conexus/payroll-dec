@@ -120,18 +120,25 @@ class PayrollController extends Controller
 
             $emp = Employee::find($row['employee_id']);
 
-            // The premium itself is earned, not entered: it comes from the
-            // holidays worked, so the posted amount is taken but the split is
-            // re-derived here rather than trusted. An admin may set the cash side
-            // by hand, and bank is then always the remainder — the two can never
-            // drift apart, whatever the browser sent.
-            $bhAmount = round((float) ($row['bh_amount'] ?? 0), 2);
-            $bhOverride = isset($row['bh_cash_override']) && $row['bh_cash_override'] !== ''
-                ? round((float) $row['bh_cash_override'], 2)
-                : null;
+            // The premium normally comes from the holidays worked, but an admin
+            // can set the total by hand to pay something the days do not imply,
+            // and can set the bank side to divide it differently. Both are
+            // re-applied here rather than trusting the figures the browser sent,
+            // so cash is always exactly the remainder however the post was made.
+            $bhDerived = round((float) ($row['bh_amount'] ?? 0), 2);
+            $bhAmountOverride = $this->optionalAmount($row['bh_amount_override'] ?? null);
+            $bhBankOverride = $this->optionalAmount($row['bh_bank_override'] ?? null);
 
-            [$bhCash, $bhBank, $bhPercent] = app(BankHolidayService::class)
-                ->splitPremium($bhAmount, (float) ($emp?->bh_bank_percent ?? 0), $bhOverride);
+            [$bhCash, $bhBank, $bhAmount, $bhPercent] = app(BankHolidayService::class)
+                ->splitPremium($bhDerived, (float) ($emp?->bh_bank_percent ?? 0), $bhAmountOverride, $bhBankOverride);
+
+            // A total cut below the bank share takes the difference out of bank,
+            // so the figure stored is no longer the one that was typed. Record
+            // what it became rather than the intent, otherwise the next load
+            // would keep re-applying an override the total can no longer fund.
+            if ($bhBankOverride !== null && $bhBank < $bhBankOverride) {
+                $bhBankOverride = $bhBank;
+            }
 
             // The weekly total is what the week's work earned; the bank-holiday
             // cash share settles on top of it. Everything below splits gross —
@@ -189,7 +196,8 @@ class PayrollController extends Controller
                     'bh_amount' => $bhAmount,
                     'bh_cash' => $bhCash,
                     'bh_bank' => $bhBank,
-                    'bh_cash_override' => $bhOverride,
+                    'bh_amount_override' => $bhAmountOverride,
+                    'bh_bank_override' => $bhBankOverride,
                     // The split that was actually paid, which is the employee's
                     // percentage only while nobody has overridden it.
                     'applied_bh_bank_percent' => $bhPercent,
@@ -241,6 +249,17 @@ class PayrollController extends Controller
             'year' => $data['year'],
             'week' => $data['week'],
         ])->with('success', 'Weekly payroll saved');
+    }
+
+    /**
+     * A money field that may legitimately be absent, meaning "not overridden".
+     *
+     * An empty string is what an emptied input posts, and it has to mean the
+     * same as no field at all — otherwise clearing an override would store zero.
+     */
+    private function optionalAmount(mixed $value): ?float
+    {
+        return $value === null || $value === '' ? null : round((float) $value, 2);
     }
 
     /**

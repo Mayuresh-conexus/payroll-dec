@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\UpdateBackupScheduleRequest;
 use App\Models\AuditLog;
 use App\Models\BackupSchedule;
+use App\Services\BackupEnvironmentReport;
 use App\Services\DatabaseBackupService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,6 +30,19 @@ class BackupController extends Controller
             ->get();
 
         return view('backups.index', compact('backups', 'schedule', 'history'));
+    }
+
+    /**
+     * The same checks backup:doctor runs, but under the web server's PHP.
+     *
+     * On shared hosting the CLI is routinely given a stricter php.ini than the
+     * web server — proc_open disabled in one and not the other is common — so a
+     * diagnosis from a terminal can describe an environment that backups never
+     * actually run in. This reports the one that does the work.
+     */
+    public function diagnostics(BackupEnvironmentReport $reporter): View
+    {
+        return view('backups.diagnostics', ['report' => $reporter->run()]);
     }
 
     public function run(): RedirectResponse

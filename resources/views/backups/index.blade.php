@@ -6,13 +6,27 @@
 @section('page_subtitle', 'Create, restore, download, and manage MySQL backups.')
 
 @section('page_action')
-    <form method="POST" action="{{ route('backups.run') }}" onsubmit="return confirm('Create a new backup now?')">
-        @csrf
-        <button type="submit"
-            class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-slate-900 text-white hover:bg-slate-800 transition">
-            + Backup Now
-        </button>
-    </form>
+    <div class="flex items-center gap-3">
+        {{-- Reachable from here rather than only from a terminal: on shared
+             hosting the CLI runs a different php.ini, so a diagnosis there can
+             describe an environment the restore never runs in. --}}
+        <a href="{{ route('backups.diagnostics') }}"
+            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25h.75v4.5m-.75 0h1.5M12 7.5h.008v.008H12V7.5Z"/>
+                <circle cx="12" cy="12" r="9"/>
+            </svg>
+            Diagnostics
+        </a>
+
+        <form method="POST" action="{{ route('backups.run') }}" onsubmit="return confirm('Create a new backup now?')">
+            @csrf
+            <button type="submit"
+                class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-slate-900 text-white hover:bg-slate-800 transition">
+                + Backup Now
+            </button>
+        </form>
+    </div>
 @endsection
 
 @section('content')

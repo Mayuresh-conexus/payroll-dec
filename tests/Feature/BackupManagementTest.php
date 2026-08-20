@@ -34,6 +34,53 @@ class BackupManagementTest extends TestCase
         $this->get('/backups')->assertForbidden();
     }
 
+    public function test_manager_cannot_access_backup_diagnostics(): void
+    {
+        // It reports the database host and the server's php.ini, so it is admin-only
+        // like the rest of this section.
+        $this->actingAs(User::factory()->create(['role' => 'manager']));
+
+        $this->get('/backups/diagnostics')->assertForbidden();
+    }
+
+    public function test_guest_cannot_access_backup_diagnostics(): void
+    {
+        $this->get('/backups/diagnostics')->assertRedirect('/login');
+    }
+
+    public function test_admin_sees_diagnostics_reported_against_the_web_server_php(): void
+    {
+        // The whole point of having this in the app: shared hosts give the CLI a
+        // different php.ini, so the SAPI that ran the checks has to be stated.
+        $this->actingAs($this->admin());
+
+        $response = $this->get('/backups/diagnostics')->assertOk();
+
+        $report = $response->viewData('report');
+
+        $this->assertSame(PHP_SAPI, $report['sapi']);
+        $this->assertArrayHasKey('disable_functions', $report);
+        $response->assertSee('PHP process functions')->assertSee('the PHP that actually runs your backups');
+    }
+
+    public function test_diagnostics_reports_process_functions_first(): void
+    {
+        // Everything else shells out, so if proc_open is missing the rest is
+        // skipped rather than reported as four separate faults.
+        $this->actingAs($this->admin());
+
+        $report = $this->get('/backups/diagnostics')->assertOk()->viewData('report');
+
+        $this->assertSame('PHP process functions', $report['checks'][0]['label']);
+    }
+
+    public function test_the_backups_page_links_to_diagnostics(): void
+    {
+        $this->actingAs($this->admin());
+
+        $this->get('/backups')->assertOk()->assertSee(route('backups.diagnostics'));
+    }
+
     public function test_manager_cannot_trigger_backup_run(): void
     {
         $this->actingAs(User::factory()->create(['role' => 'manager']));

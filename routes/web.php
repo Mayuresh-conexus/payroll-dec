@@ -101,6 +101,9 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
 
     // Database Backups
     Route::get('/backups', [BackupController::class, 'index'])->name('backups.index');
+    // Runs the mysql client a few times, so it is rate-limited like the exports.
+    Route::get('/backups/diagnostics', [BackupController::class, 'diagnostics'])
+        ->name('backups.diagnostics')->middleware('throttle:10,1');
     Route::post('/backups/run', [BackupController::class, 'run'])
         ->name('backups.run')->middleware('throttle:5,1');
     Route::get('/backups/{filename}/download', [BackupController::class, 'download'])

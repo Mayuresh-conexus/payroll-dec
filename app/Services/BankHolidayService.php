@@ -27,6 +27,18 @@ class BankHolidayService
     private const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
     /**
+     * Holiday dates already looked up, keyed by month.
+     *
+     * Every employee on a payroll week asks for the same month's holidays, so
+     * without this the list is re-queried once per person. Holidays cannot
+     * change while a page is being rendered, which is what makes it safe to
+     * hold — attendance, which does change mid-request, is never cached here.
+     *
+     * @var array<string, list<Carbon>>
+     */
+    private array $holidayDates = [];
+
+    /**
      * The month a given payroll week settles, or null for an ordinary week.
      *
      * A month is settled by the week containing its final day, so each month has
@@ -66,15 +78,55 @@ class BankHolidayService
     }
 
     /**
+     * How a premium divides between cash and bank.
+     *
+     * bh_bank_percent decides this by default, but an admin can set the cash side
+     * by hand for one week; passing that figure as $cashOverride makes it win.
+     * Either way the two sides are the premium — the amount earned is derived
+     * from the holidays actually worked and is never the admin's to change, so
+     * the bank side is always whatever the cash side leaves behind.
+     *
+     * The override is clamped rather than trusted: attendance can be edited after
+     * the split was set, and a premium that has since shrunk must not pay out a
+     * cash figure larger than the whole of it.
+     *
+     * @return array{0: float, 1: float, 2: float} cash, bank, effective bank percent
+     */
+    public function splitPremium(float $amount, float $percent, ?float $cashOverride = null): array
+    {
+        if ($amount <= 0) {
+            return [0.0, 0.0, $percent];
+        }
+
+        if ($cashOverride !== null) {
+            $cash = round(max(0.0, min($cashOverride, $amount)), 2);
+            $bank = round($amount - $cash, 2);
+
+            // Report the split the employee actually got, not the one the
+            // percentage would have produced, so payslips stay honest.
+            return [$cash, $bank, round($bank / $amount * 100, 2)];
+        }
+
+        $bank = round($amount * $percent / 100, 2);
+
+        // Subtract rather than round a second time, so cash + bank always equals
+        // the premium exactly and no cent is created or lost.
+        $cash = round($amount - $bank, 2);
+
+        return [$cash, $bank, $percent];
+    }
+
+    /**
      * The premium this employee has earned across the month this week settles.
      *
      * Returns zeroes for an ordinary week. Only the cash share belongs in the
      * week's earnings — the bank share is a separate transfer on top of the
      * employee's fixed weekly bank amount.
      *
+     * @param  float|null  $cashOverride  a hand-set cash side, if the week has one
      * @return array{0: float, 1: float, 2: float, 3: float} amount, cash, bank, percent
      */
-    public function settlementFor(Employee $employee, int $year, int $week): array
+    public function settlementFor(Employee $employee, int $year, int $week, ?float $cashOverride = null): array
     {
         $percent = (float) ($employee->bh_bank_percent ?? 0);
         $month = $this->settledMonth($year, $week);
@@ -94,13 +146,9 @@ class BankHolidayService
         }
 
         $amount = round($total, 2);
-        $bank = round($amount * $percent / 100, 2);
+        [$cash, $bank, $effectivePercent] = $this->splitPremium($amount, $percent, $cashOverride);
 
-        // Subtract rather than round a second time, so cash + bank always equals
-        // the premium exactly and no cent is created or lost.
-        $cash = round($amount - $bank, 2);
-
-        return [$amount, $cash, $bank, $percent];
+        return [$amount, $cash, $bank, $effectivePercent];
     }
 
     /**
@@ -114,6 +162,14 @@ class BankHolidayService
      * @return list<Carbon>
      */
     private function holidayDatesIn(Carbon $month): array
+    {
+        return $this->holidayDates[$month->format('Y-m')] ??= $this->loadHolidayDatesIn($month);
+    }
+
+    /**
+     * @return list<Carbon>
+     */
+    private function loadHolidayDatesIn(Carbon $month): array
     {
         $monthStart = $month->copy()->startOfMonth();
         $monthEnd = $month->copy()->endOfMonth();

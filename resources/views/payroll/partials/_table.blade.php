@@ -37,8 +37,8 @@
             <thead class="bg-slate-50 text-slate-500 uppercase text-xs font-semibold">
                 <tr>
                     <th rowspan="2" class="{{ $headCode }} w-[92px] px-3 py-2 text-left"><div class="w-[68px]">Code</div></th>
-                    <th rowspan="2" class="{{ $headName }} w-[200px] px-4 py-2 text-left"><div class="w-[168px]">Employee</div></th>
-                    <th rowspan="2" class="w-[150px] px-3 py-2 text-left">Attendance</th>
+                    <th rowspan="2" class="{{ $headName }} w-[160px] px-3 py-2 text-left"><div class="w-[136px]">Employee</div></th>
+                    <th rowspan="2" class="w-[112px] px-3 py-2 text-left">Attendance</th>
                     <th colspan="3" class="{{ $groupEdge }} px-4 py-2 text-center">Weekly</th>
                     @if ($showBh)
                         <th colspan="2" class="{{ $groupEdge }} px-4 py-2 text-center text-violet-700">
@@ -74,7 +74,14 @@
 
             <tbody class="divide-y divide-slate-100">
                 @forelse($rows as $index => $row)
-                    @php $emp = $row['employee']; @endphp
+                    @php
+                        $emp = $row['employee'];
+                        // Whether this row settles a premium at all. Gates both the BH
+                        // inputs and the tab under the cash cell, so an ordinary row
+                        // carries none of that markup.
+                        $rowHasPremium = (float) ($row['bh_amount'] ?? 0) > 0;
+                        $rowEditable = ! $run || $run->status !== 'final';
+                    @endphp
                     <tr class="group hover:bg-slate-50">
                         <td class="{{ $stickyCode }} px-3 py-3 align-top">
                             <div class="w-[68px]">
@@ -89,8 +96,8 @@
                                 @endunless
                             </div>
                         </td>
-                        <td class="{{ $stickyName }} px-4 py-3 align-top">
-                            <div class="w-[168px]">
+                        <td class="{{ $stickyName }} px-3 py-3 align-top">
+                            <div class="w-[136px]">
                             {{-- Type and rate ride under the name: they are reference,
                                  not figures to scan across, and folding them in here
                                  keeps two more money columns on screen. --}}
@@ -98,49 +105,68 @@
                             {{-- Pay type and rate ride in one capsule: they are a single
                                  fact ("what this person is paid"), so they read as one
                                  chip rather than two competing items. Kept neutral so the
-                                 only tinted thing on the row is a real status, like Inactive. --}}
+                                 only tinted thing on the row is a real status, like Inactive.
+                                 Left on one line deliberately — the name truncates at a
+                                 fixed width, so it sets how narrow this column can go and
+                                 stacking the chip would cost a row of height for nothing. --}}
                             <div class="mt-1">
                                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-[11px] text-slate-600 whitespace-nowrap"
                                     title="Rate effective for this payroll week, from rate history">
                                     <span class="font-medium">{{ $row['type'] === 'daily_rate' ? 'Daily' : 'Hourly' }}</span>
-                                    <span class="text-slate-400">:</span>
                                     <span class="font-mono">&euro;{{ number_format($row['rate'] ?? 0, 2) }}</span>
                                 </span>
                             </div>
                             </div>
                         </td>
-                        <td class="px-3 py-3 text-left text-xs text-slate-600">
-                            @if ($row['type'] === 'daily_rate')
-                                @if (!empty($row['sun_present']))
-                                    {{ $row['present_days'] - 1 }}/{{ $row['total_days'] }} days
-                                    + <span class="inline-flex items-center ml-1 px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 text-xs font-semibold">Sun</span>
-                                @else
-                                    {{ $row['present_days'] }}/{{ $row['total_days'] }} days
-                                @endif
-                                @if (!empty($row['overtime_amount']))
-                                    + <span class="inline-flex items-center ml-2 px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-xs font-semibold">
-                                        {{ number_format($row['overtime_amount'], 2) }} OT
-                                    </span>
-                                @endif
-                            @else
-                                @if (!empty($row['sun_present']))
-                                    {{ $row['total_hours'] - $row['sun_hours'] }} hrs
-                                    @if ($row['overtime_hours'])
-                                        + <span class="inline-flex items-center ml-1 px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-xs font-semibold">{{ $row['overtime_hours'] }} hrs OT</span>
+                        {{-- Attendance stacks rather than running on: the count is what
+                             gets scanned down the column, and anything extra about the
+                             week sits under it as a badge. Strung together on one line
+                             these wrapped mid-phrase ("6/6 days +" / "300.00 OT"), which
+                             is what was forcing the column wide. --}}
+                        <td class="px-3 py-3 text-left align-top">
+                            @php
+                                $isDailyRow = $row['type'] === 'daily_rate';
+                                $hasSunday = ! empty($row['sun_present']);
+                                $sundayHours = (float) ($row['sun_hours'] ?? 0);
+                                $otAmount = (float) ($row['overtime_amount'] ?? 0);
+                                $otHours = (float) ($row['overtime_hours'] ?? 0);
+                                $badge = 'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap';
+                            @endphp
+
+                            <div class="w-[88px] space-y-1">
+                                <div class="text-xs text-slate-600 whitespace-nowrap">
+                                    @if ($isDailyRow)
+                                        <span class="font-semibold text-slate-800">{{ $hasSunday ? $row['present_days'] - 1 : $row['present_days'] }}/{{ $row['total_days'] }}</span> days
+                                    @else
+                                        <span class="font-semibold text-slate-800">{{ (float) ($hasSunday ? $row['total_hours'] - $sundayHours : $row['total_hours']) }}</span> hrs
                                     @endif
-                                    + <span class="inline-flex items-center ml-1 px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 text-xs font-semibold">{{ min(6, $row['sun_hours'] ?? 0) }} hrs Sun</span>
-                                @else
-                                    {{ $row['total_hours'] }} hrs
-                                    @if ($row['overtime_hours'])
-                                        + {{ $row['overtime_hours'] }} OT
-                                    @endif
+                                </div>
+
+                                @if ($hasSunday || $otAmount > 0 || $otHours > 0)
+                                    <div class="flex flex-wrap gap-1">
+                                        @if ($isDailyRow && $otAmount > 0)
+                                            <span class="{{ $badge }} bg-purple-50 text-purple-700" title="Overtime paid this week">
+                                                +{{ number_format($otAmount, 2) }} OT
+                                            </span>
+                                        @endif
+                                        @if (! $isDailyRow && $otHours > 0)
+                                            <span class="{{ $badge }} bg-purple-50 text-purple-700" title="Overtime hours this week">
+                                                +{{ (float) $otHours }}h OT
+                                            </span>
+                                        @endif
+                                        @if ($hasSunday)
+                                            <span class="{{ $badge }} bg-orange-50 text-orange-700" title="Worked on Sunday">
+                                                @if ($isDailyRow) Sun @else {{ (float) min(6, $sundayHours) }}h Sun @endif
+                                            </span>
+                                        @endif
+                                    </div>
                                 @endif
-                            @endif
+                            </div>
                         </td>
                         <td class="{{ $groupEdge }} px-4 py-3 text-right text-sm text-slate-800">
                             <span x-text="formatMoney(items[{{ $index }}].weekly_amount)"></span>
                             {{-- Zero-earnings warning: no pay this week but bank will still transfer --}}
-                            <template x-if="items[{{ $index }}].weekly_amount === 0 && items[{{ $index }}].bank > 0">
+                            <template x-if="earnings({{ $index }}) === 0 && items[{{ $index }}].bank > 0">
                                 <div class="mt-1 flex items-center justify-end gap-1">
                                     <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium"
                                           title="No earnings this week. The bank transfer will be recorded as an advance. Set bank to €0 to skip it.">
@@ -153,14 +179,41 @@
                             </template>
                         </td>
                         <td class="px-4 py-3 text-right align-top">
-                            @if ($run && $run->status === 'final')
-                                <span class="font-mono text-sm text-slate-700" x-text="formatMoney(items[{{ $index }}].cash)"></span>
-                            @else
-                                <input type="number" min="0" step="0.01"
-                                    x-model.number="items[{{ $index }}].cash"
-                                    @input="recalcRow({{ $index }})"
-                                    class="w-24 text-right border border-slate-200 rounded-lg px-3 py-1.5 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 outline-none transition-all shadow-sm">
-                            @endif
+                            {{-- The bank-holiday cash share is inside this figure rather
+                                 than beside it, so it is called out on a tab fixed to the
+                                 underside of the cell it is part of — square where the two
+                                 meet, rounded where it ends, and in the BH violet so it
+                                 reads as the same money as the BH column. --}}
+                            <div class="inline-flex flex-col items-stretch w-24">
+                                @if ($run && $run->status === 'final')
+                                    <span class="font-mono text-sm text-slate-700 py-1.5 px-3 text-right"
+                                        x-text="formatMoney(items[{{ $index }}].cash)"></span>
+                                @else
+                                    <input type="number" :min="cashFloor({{ $index }})" step="0.01"
+                                        x-model.number="items[{{ $index }}].cash"
+                                        @input="recalcRow({{ $index }})"
+                                        @focus="$event.target.select()"
+                                        @keydown.enter.prevent="focusSiblingRow($event, $event.shiftKey ? -1 : 1)"
+                                        data-col="cash" data-row="{{ $index }}"
+                                       
+                                        :class="items[{{ $index }}].bh_cash > 0 ? 'rounded-t-lg' : 'rounded-lg'"
+                                        :title="cashFloor({{ $index }}) > 0
+                                            ? 'Cannot go below ' + formatMoney(cashFloor({{ $index }})) + ' — the cash share of the bank-holiday premium.'
+                                            : null"
+                                        class="no-spinner w-full text-right border border-slate-200 px-3 py-1.5 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 outline-none transition-all shadow-sm">
+                                @endif
+
+                                {{-- Follows the BH cash figure, which the admin can now
+                                     change, so it is bound rather than printed once. --}}
+                                @if ($rowHasPremium)
+                                    <template x-if="items[{{ $index }}].bh_cash > 0">
+                                        <span class="w-full rounded-b-lg border border-t-0 border-violet-200 bg-violet-50 px-3 py-0.5 text-right text-[10px] font-semibold leading-tight text-violet-700"
+                                            :title="'Includes ' + formatMoney(items[{{ $index }}].bh_cash) + ' of bank-holiday cash. Already counted in this figure — the cash cannot be set below it.'">
+                                            +<span x-text="formatMoney(items[{{ $index }}].bh_cash)"></span> BH
+                                        </span>
+                                    </template>
+                                @endif
+                            </div>
                         </td>
                         <td class="px-4 py-3 text-right align-top">
                             @if ($run && $run->status === 'final')
@@ -169,23 +222,61 @@
                                 <input type="number" min="0" step="0.01"
                                     x-model.number="items[{{ $index }}].bank"
                                     @input="updateFromBank({{ $index }})"
-                                    class="w-24 text-right border border-slate-200 rounded-lg px-3 py-1.5 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 outline-none transition-all shadow-sm">
+                                    @focus="$event.target.select()"
+                                    @keydown.enter.prevent="focusSiblingRow($event, $event.shiftKey ? -1 : 1)"
+                                    data-col="bank" data-row="{{ $index }}"
+                                    class="no-spinner w-24 text-right border border-slate-200 rounded-lg px-3 py-1.5 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 outline-none transition-all shadow-sm">
                             @endif
                         </td>
 
-                        {{-- BH split — derived from the employee's percentage, so shown
-                             rather than edited. Both figures are already inside the
-                             Weekly Cash / Weekly Bank totals to their left. --}}
+                        {{-- BH split — the premium itself is earned from the holidays
+                             worked and is never edited, but how it divides can be set by
+                             hand for a week. Each side absorbs the other, so the two
+                             always add back to the premium. --}}
                         @if ($showBh)
                             <td class="{{ $groupEdge }} px-4 py-3 text-right align-top">
-                                @if (($row['bh_cash'] ?? 0) > 0)
+                                @if ($rowHasPremium && $rowEditable)
+                                    <input type="number" min="0" max="{{ $row['bh_amount'] }}" step="0.01"
+                                        x-model.number="items[{{ $index }}].bh_cash"
+                                        @input="updateBhCash({{ $index }})"
+                                        @focus="$event.target.select()"
+                                        @keydown.enter.prevent="focusSiblingRow($event, $event.shiftKey ? -1 : 1)"
+                                        data-col="bh_cash" data-row="{{ $index }}"
+                                        title="Cash side of the {{ number_format($row['bh_amount'], 2) }} premium. Raising it lowers the bank side by the same amount."
+                                        class="no-spinner w-20 text-right font-mono text-sm text-violet-700 border border-violet-200 rounded-lg px-2 py-1.5 bg-violet-50/40 focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 outline-none transition-all shadow-sm">
+                                @elseif ($rowHasPremium)
                                     <span class="font-mono text-sm text-violet-700">{{ number_format($row['bh_cash'], 2) }}</span>
                                 @else
                                     <span class="text-slate-300 text-sm select-none">—</span>
                                 @endif
                             </td>
                             <td class="px-4 py-3 text-right align-top">
-                                @if (($row['bh_bank'] ?? 0) > 0)
+                                @if ($rowHasPremium && $rowEditable)
+                                    <input type="number" min="0" max="{{ $row['bh_amount'] }}" step="0.01"
+                                        x-model.number="items[{{ $index }}].bh_bank"
+                                        @input="updateBhBank({{ $index }})"
+                                        @focus="$event.target.select()"
+                                        @keydown.enter.prevent="focusSiblingRow($event, $event.shiftKey ? -1 : 1)"
+                                        data-col="bh_bank" data-row="{{ $index }}"
+                                        title="Bank side of the {{ number_format($row['bh_amount'], 2) }} premium, transferred on top of the weekly bank amount."
+                                        class="no-spinner w-20 text-right font-mono text-sm text-violet-700 border border-violet-200 rounded-lg px-2 py-1.5 bg-violet-50/40 focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 outline-none transition-all shadow-sm">
+
+                                    {{-- Only shown once the percentage is no longer driving
+                                         the split, so an ordinary row stays quiet. --}}
+                                    <template x-if="bhOverridden({{ $index }})">
+                                        <div class="mt-1 flex items-center justify-end gap-1">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold"
+                                                title="Set by hand — the employee's {{ number_format($row['bh_bank_percent'] ?? 0, 2) }}% is not deciding this week. Refreshing the week will keep it.">
+                                                edited
+                                            </span>
+                                            <button type="button" @click="resetBhSplit({{ $index }})"
+                                                class="text-[10px] font-medium text-slate-400 hover:text-violet-700 transition"
+                                                title="Put the split back to {{ number_format($row['bh_bank_percent'] ?? 0, 2) }}% bank">
+                                                reset
+                                            </button>
+                                        </div>
+                                    </template>
+                                @elseif ($rowHasPremium)
                                     <span class="font-mono text-sm text-violet-700">{{ number_format($row['bh_bank'], 2) }}</span>
                                 @else
                                     <span class="text-slate-300 text-sm select-none">—</span>
@@ -277,9 +368,12 @@
                             <input type="hidden" name="items[{{ $index }}][gross]"                    :value="items[{{ $index }}].gross_amount">
                             <input type="hidden" name="items[{{ $index }}][cash]"                     :value="items[{{ $index }}].cash">
                             <input type="hidden" name="items[{{ $index }}][bank]"                     :value="items[{{ $index }}].bank">
+                            {{-- The premium is derived and posts as it was calculated; the
+                                 split follows whatever the admin left in the two boxes. --}}
                             <input type="hidden" name="items[{{ $index }}][bh_amount]"                value="{{ $row['bh_amount'] ?? 0 }}">
-                            <input type="hidden" name="items[{{ $index }}][bh_cash]"                  value="{{ $row['bh_cash'] ?? 0 }}">
-                            <input type="hidden" name="items[{{ $index }}][bh_bank]"                  value="{{ $row['bh_bank'] ?? 0 }}">
+                            <input type="hidden" name="items[{{ $index }}][bh_cash]"                  :value="items[{{ $index }}].bh_cash">
+                            <input type="hidden" name="items[{{ $index }}][bh_bank]"                  :value="items[{{ $index }}].bh_bank">
+                            <input type="hidden" name="items[{{ $index }}][bh_cash_override]"         :value="items[{{ $index }}].bh_cash_override ?? ''">
                             <input type="hidden" name="items[{{ $index }}][leave_days]"               value="{{ $row['leave_days'] ?? 0 }}">
                             <input type="hidden" name="items[{{ $index }}][leave_hours]"              value="{{ $row['leave_hours'] ?? 0 }}">
                             <input type="hidden" name="items[{{ $index }}][leave_amount]"             value="{{ $row['leave_amount'] ?? 0 }}">
@@ -309,7 +403,7 @@
                         {{-- Mirrors the header's sticky columns so "Totals" stays put
                              and the figures never drift out of their columns. --}}
                         <td class="{{ $footCode }} px-3 py-3"></td>
-                        <td class="{{ $footName }} px-4 py-3 text-right font-semibold text-slate-700">Totals</td>
+                        <td class="{{ $footName }} px-3 py-3 text-right font-semibold text-slate-700">Totals</td>
                         <td class="px-3 py-3"></td>{{-- attendance spacer --}}
                         <td class="{{ $groupEdge }} px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.weeklyAmount)"></span></td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.cash)"></span></td>

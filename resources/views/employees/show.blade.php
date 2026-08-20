@@ -106,8 +106,8 @@
     </div>
 
     {{-- ── Pay figures — one card per genuinely distinct number, sized so the
-           row always fills evenly (2 for daily, 3 for hourly) ──────────────── --}}
-    <div class="grid grid-cols-1 sm:grid-cols-2 {{ $isDaily ? '' : 'lg:grid-cols-3' }} gap-4">
+           row always fills evenly (3 for daily, 4 for hourly) ──────────────── --}}
+    <div class="grid grid-cols-1 sm:grid-cols-2 {{ $isDaily ? 'lg:grid-cols-3' : 'lg:grid-cols-4' }} gap-4">
         @if ($isDaily)
             @php
                 $rate = $employee->currentRateOf('daily_rate');
@@ -142,6 +142,32 @@
                 </p>
             </div>
         @endif
+
+        {{-- Leave — the remaining figure leads because it is the one anyone
+             opening this page is actually looking for; used and earned sit
+             underneath as the arithmetic behind it. --}}
+        @php
+            $leaveUnit = $leaveBalance['unit'] === 'hours' ? 'hrs' : 'days';
+            $leaveOverdrawn = $leaveBalance['remaining'] < 0;
+        @endphp
+        <div class="bg-white rounded-xl border border-slate-200 border-l-4 {{ $leaveOverdrawn ? 'border-l-rose-500' : 'border-l-sky-400' }} shadow-sm px-5 py-4">
+            <p class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Leave Remaining</p>
+            <p class="text-2xl font-bold mt-1 {{ $leaveOverdrawn ? 'text-rose-600' : 'text-slate-900' }}">
+                {{ (float) $leaveBalance['remaining'] }}
+                <span class="text-base font-semibold text-slate-400">{{ $leaveUnit }}</span>
+            </p>
+            <p class="text-xs text-slate-400 mt-1">
+                {{ (float) $leaveBalance['taken'] }} used of {{ (float) $leaveBalance['entitlement'] }}
+                @if ($isDaily)
+                    <span title="Four weeks of a {{ $employee->workingDaysPerWeek() }}-day working week.">earned</span>
+                @else
+                    <span title="{{ \App\Services\LeaveService::HOURLY_ACCRUAL_PERCENT }}% of the hours clocked this leave year, so it grows as they work.">accrued</span>
+                @endif
+            </p>
+            <p class="text-[11px] text-slate-400 mt-0.5">
+                Leave year to {{ $leaveBalance['year_end']->format('d M Y') }}
+            </p>
+        </div>
 
         <div class="bg-white rounded-xl border border-slate-200 border-l-4 border-l-emerald-500 shadow-sm px-5 py-4">
             <p class="text-[11px] font-medium uppercase tracking-wide text-slate-400">Latest Payroll</p>

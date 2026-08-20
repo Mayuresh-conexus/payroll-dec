@@ -28,12 +28,12 @@ class PayrollService
      */
     public function buildRowsFromAttendance(int $year, int $week): Collection
     {
-        $dailyAtt = DailyRateAttendance::with('employee')
+        $dailyAtt = DailyRateAttendance::with('employee.rates')
             ->where('year', $year)
             ->where('week_number', $week)
             ->get();
 
-        $hourlyAtt = HourlyAttendance::with('employee')
+        $hourlyAtt = HourlyAttendance::with('employee.rates')
             ->where('year', $year)
             ->where('week_number', $week)
             ->get();
@@ -44,8 +44,10 @@ class PayrollService
         // Bank holidays clear once a month; an ordinary week settles nothing.
         $bankHolidays = app(BankHolidayService::class);
 
-        // Paid leave is earned in the week it is taken, like worked time.
+        // Paid leave is earned in the week it is taken, like worked time. Loaded
+        // for the whole table up front rather than employee by employee.
         $leaves = app(LeaveService::class);
+        $leaves->preloadLeaveFor($dailyAtt->pluck('employee')->merge($hourlyAtt->pluck('employee'))->filter());
 
         foreach ($dailyAtt as $att) {
             $employee = $att->employee;
@@ -83,7 +85,10 @@ class PayrollService
             [$bhAmount, $bhCash, $bhBank] = $bankHolidays->settlementFor($employee, $year, $week);
             [$leaveDays, $leaveHours, $leaveAmount] = $leaves->weekPayFor($employee, $year, $week);
 
-            $gross = ($presentDays * $dailyRate) + $overtimeAmount + $bhCash + $leaveAmount;
+            // Mirror of AttendanceService: the week's own earnings first, with the
+            // bank-holiday cash share added only into gross.
+            $weekEarnings = ($presentDays * $dailyRate) + $overtimeAmount + $leaveAmount;
+            $gross = $weekEarnings + $bhCash;
             $sunPresent = ! empty($att->days_map['sun']) && (int) $att->days_map['sun'] === 1;
 
             $rows->push([
@@ -99,9 +104,12 @@ class PayrollService
                 'bh_amount' => $bhAmount,
                 'bh_cash' => $bhCash,
                 'bh_bank' => $bhBank,
+                'bh_cash_override' => null,
+                'bh_bank_percent' => (float) ($employee->bh_bank_percent ?? 0),
                 'leave_days' => $leaveDays,
                 'leave_hours' => $leaveHours,
                 'leave_amount' => $leaveAmount,
+                'weekly_amount' => $weekEarnings,
                 'gross_amount' => $gross,
                 'cash_amount' => 0,
                 'bank_amount' => $bankAmountFix,
@@ -143,7 +151,8 @@ class PayrollService
             [$bhAmount, $bhCash, $bhBank] = $bankHolidays->settlementFor($employee, $year, $week);
             [$leaveDays, $leaveHours, $leaveAmount] = $leaves->weekPayFor($employee, $year, $week);
 
-            $gross = ($hours * $rate) + ($ot * $rate) + $bhCash + $leaveAmount;
+            $weekEarnings = ($hours * $rate) + ($ot * $rate) + $leaveAmount;
+            $gross = $weekEarnings + $bhCash;
             $sunHours = ! empty($att->hours_map['sun']) ? (float) $att->hours_map['sun'] : 0;
 
             $rows->push([
@@ -159,9 +168,12 @@ class PayrollService
                 'bh_amount' => $bhAmount,
                 'bh_cash' => $bhCash,
                 'bh_bank' => $bhBank,
+                'bh_cash_override' => null,
+                'bh_bank_percent' => (float) ($employee->bh_bank_percent ?? 0),
                 'leave_days' => $leaveDays,
                 'leave_hours' => $leaveHours,
                 'leave_amount' => $leaveAmount,
+                'weekly_amount' => $weekEarnings,
                 'gross_amount' => $gross,
                 'cash_amount' => 0,
                 'bank_amount' => $bankAmountFix,
@@ -208,7 +220,7 @@ class PayrollService
             })
             ->orderBy('pr.year')
             ->orderBy('pr.week_number')
-            ->select('pi.employee_id', 'pi.bank_amount', 'pi.weekly_amount', 'pi.advance_recovered', 'pr.year', 'pr.week_number')
+            ->select('pi.employee_id', 'pi.bank_amount', 'pi.gross_amount', 'pi.advance_recovered', 'pr.year', 'pr.week_number')
             ->get()
             ->groupBy('employee_id');
 
@@ -216,7 +228,7 @@ class PayrollService
         foreach ($allRows as $empId => $items) {
             $balance = 0.0;
             foreach ($items as $item) {
-                $given = max(0.0, (float) $item->bank_amount - (float) $item->weekly_amount);
+                $given = max(0.0, (float) $item->bank_amount - (float) $item->gross_amount);
                 $recovered = (float) ($item->advance_recovered ?? 0);
                 $balance = max(0.0, $balance + $given - $recovered);
             }
@@ -293,6 +305,7 @@ class PayrollService
 
                 // Leave pay is already inside gross_amount/weekly_amount — these
                 // are carried through only so the breakdown survives a save.
+                $bhCashOverride = $item->bh_cash_override === null ? null : (float) $item->bh_cash_override;
                 $leaveDays = (float) ($item->leave_days ?? 0);
                 $leaveHours = (float) ($item->leave_hours ?? 0);
                 $leaveAmount = (float) ($item->leave_amount ?? 0);
@@ -311,11 +324,11 @@ class PayrollService
                         // Attendance was saved/recalculated but payroll was never explicitly
                         // saved via "Save Weekly Payroll" — mirror the same preview split the
                         // web page computes client-side, so exports/reports match the screen.
-                        $cash = max(0, $weeklyAmount - $empBankFix);
+                        $cash = max(0, $gross - $empBankFix);
                         $bankAmount = min($empBankFix, $gross);
                     }
 
-                    [$recover, $arrears] = $this->computeAdvance($prevAdvanceBalance, $weeklyAmount, $bankAmount, $cash, $isSaved);
+                    [$recover, $arrears] = $this->computeAdvance($prevAdvanceBalance, $gross, $bankAmount, $cash, $isSaved);
 
                     $rate = (float) ($isDaily
                         ? ($item->applied_daily_rate ?? $rowsByKey[$key]['rate'] ?? $employee->daily_rate ?? 0)
@@ -332,6 +345,8 @@ class PayrollService
                         'bh_amount' => $bhAmount,
                         'bh_cash' => $bhCash,
                         'bh_bank' => $bhBank,
+                        'bh_cash_override' => $bhCashOverride,
+                        'bh_bank_percent' => (float) ($employee->bh_bank_percent ?? 0),
                         'leave_days' => $leaveDays,
                         'leave_hours' => $leaveHours,
                         'leave_amount' => $leaveAmount,
@@ -349,29 +364,40 @@ class PayrollService
                     ];
                 } elseif ($rowsByKey->has($key)) {
                     $row = $rowsByKey->get($key);
-                    $gross = (float) ($row['gross_amount'] ?? 0);
                     $itemCash = (float) ($item->cash_amount ?? 0);
                     $itemBank = (float) ($item->bank_amount ?? 0);
                     $isSaved = $itemCash > 0 || abs($itemBank - $empBankFix) > 0.005;
-                    $weeklyAmount = (float) ($item->weekly_amount ?? $gross);
+
+                    // Attendance is unlocked here, so the freshly derived figure
+                    // wins over the stored one. The weekly total is never edited by
+                    // hand — it only ever comes from attendance — so the stored
+                    // value is a stale copy the moment attendance or a rate moves.
+                    $weeklyAmount = (float) ($row['weekly_amount'] ?? $item->weekly_amount ?? 0);
+
+                    // The premium's cash side comes from the item, which may carry a
+                    // split the admin set by hand, so gross is rebuilt from the two
+                    // rather than taken from the percentage-derived row.
+                    $gross = $weeklyAmount + $bhCash;
 
                     if ($isSaved) {
                         $cash = $this->clampCash($itemCash, $gross);
                         $bankAmount = $itemBank;
                     } else {
-                        $cash = max(0, $weeklyAmount - $empBankFix);
+                        $cash = max(0, $gross - $empBankFix);
                         $bankAmount = $empBankFix;
                     }
 
-                    [$recover, $arrears] = $this->computeAdvance($prevAdvanceBalance, $weeklyAmount, $bankAmount, $cash, $isSaved);
+                    [$recover, $arrears] = $this->computeAdvance($prevAdvanceBalance, $gross, $bankAmount, $cash, $isSaved);
 
                     $row['cash_amount'] = $cash;
                     $row['bank_amount'] = ($cash > 0) ? $bankAmount : $empBankFix;
                     $row['bank_transfer_fix_amount'] = $empBankFix;
                     $row['weekly_amount'] = $weeklyAmount;
+                    $row['gross_amount'] = $gross;
                     $row['bh_amount'] = $bhAmount;
                     $row['bh_cash'] = $bhCash;
                     $row['bh_bank'] = $bhBank;
+                    $row['bh_cash_override'] = $bhCashOverride;
                     $row['leave_days'] = $leaveDays;
                     $row['leave_hours'] = $leaveHours;
                     $row['leave_amount'] = $leaveAmount;
@@ -394,11 +420,11 @@ class PayrollService
                         $cash = $this->clampCash($itemCash, $gross);
                         $bankAmount = $gross - $cash;
                     } else {
-                        $cash = max(0, $weeklyAmount - $empBankFix);
+                        $cash = max(0, $gross - $empBankFix);
                         $bankAmount = $empBankFix;
                     }
 
-                    [$recover, $arrears] = $this->computeAdvance($prevAdvanceBalance, $weeklyAmount, $bankAmount, $cash, $isSaved);
+                    [$recover, $arrears] = $this->computeAdvance($prevAdvanceBalance, $gross, $bankAmount, $cash, $isSaved);
 
                     $rate = (float) ($isDaily
                         ? ($item->applied_daily_rate ?? $employee->daily_rate ?? 0)
@@ -415,6 +441,8 @@ class PayrollService
                         'bh_amount' => $bhAmount,
                         'bh_cash' => $bhCash,
                         'bh_bank' => $bhBank,
+                        'bh_cash_override' => $bhCashOverride,
+                        'bh_bank_percent' => (float) ($employee->bh_bank_percent ?? 0),
                         'leave_days' => $leaveDays,
                         'leave_hours' => $leaveHours,
                         'leave_amount' => $leaveAmount,
@@ -438,7 +466,9 @@ class PayrollService
                 $gross = (float) ($row['gross_amount'] ?? 0);
                 $bankFix = (float) ($row['bank_transfer_fix_amount'] ?? 0);
                 $weeklyAmount = (float) ($row['weekly_amount'] ?? $gross);
-                $cash = max(0, $weeklyAmount - $bankFix);
+                // Cash comes out of gross, not the weekly total: a bank-holiday
+                // cash share tops up what is handed over without the bank moving.
+                $cash = max(0, $gross - $bankFix);
                 $bankAmount = min($bankFix, $gross);
 
                 $row['cash_amount'] = $cash;
@@ -451,7 +481,7 @@ class PayrollService
 
                 [$recover, $arrears] = $this->computeAdvance(
                     (float) $row['prev_advance_balance'],
-                    $weeklyAmount,
+                    $gross,
                     $bankAmount,
                     $cash,
                     false
@@ -478,17 +508,21 @@ class PayrollService
      * so exports and other server-side consumers show the same figures as the screen,
      * even for a week whose payroll amounts were never explicitly saved.
      *
+     * $earnings is gross — everything the employee earned this week, the
+     * bank-holiday cash share included. An advance is money transferred beyond
+     * what was earned, so it has to be measured against the whole of it.
+     *
      * @return array{0: float, 1: float} [$recover, $arrears]
      */
-    private function computeAdvance(float $prevBalance, float $weeklyAmount, float $bankAmount, float $cashAmount, bool $isSaved): array
+    private function computeAdvance(float $prevBalance, float $earnings, float $bankAmount, float $cashAmount, bool $isSaved): array
     {
         $recover = 0.0;
         if ($isSaved) {
-            $normalCash = max(0, $weeklyAmount - $bankAmount);
+            $normalCash = max(0, $earnings - $bankAmount);
             $recover = max(0, round(($normalCash - $cashAmount) * 100) / 100);
         }
 
-        $given = max(0, $bankAmount - $weeklyAmount);
+        $given = max(0, $bankAmount - $earnings);
         $arrears = max(0, round(($prevBalance + $given - $recover) * 100) / 100);
 
         return [$recover, $arrears];

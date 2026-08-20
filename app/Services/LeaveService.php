@@ -36,6 +36,65 @@ class LeaveService
     private const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
     /**
+     * Leave records already loaded, keyed by employee.
+     *
+     * A payroll week asks every employee the same question and the balances page
+     * asks each of them twice, so without this the table is hit once per call.
+     * Leave cannot change while a page renders, and an employee's whole history
+     * is a handful of rows, so it is held whole rather than per date range.
+     *
+     * @var array<int, \Illuminate\Support\Collection<int, Leave>>
+     */
+    private array $leavesByEmployee = [];
+
+    /**
+     * Load leave for several employees at once.
+     *
+     * Callers that are about to walk a list — the payroll table, the balances
+     * page — should say so up front, turning one query per employee into one
+     * query for all of them.
+     *
+     * @param  iterable<Employee>  $employees
+     */
+    public function preloadLeaveFor(iterable $employees): void
+    {
+        $ids = [];
+
+        foreach ($employees as $employee) {
+            if ($employee->id && ! array_key_exists($employee->id, $this->leavesByEmployee)) {
+                $ids[] = $employee->id;
+            }
+        }
+
+        if ($ids === []) {
+            return;
+        }
+
+        $grouped = Leave::query()
+            ->whereIn('employee_id', $ids)
+            ->orderBy('start_date')
+            ->orderBy('id')
+            ->get()
+            ->groupBy('employee_id');
+
+        foreach ($ids as $id) {
+            $this->leavesByEmployee[$id] = $grouped->get($id) ?? collect();
+        }
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, Leave>
+     */
+    private function leavesOf(Employee $employee): \Illuminate\Support\Collection
+    {
+        if (! array_key_exists($employee->id, $this->leavesByEmployee)) {
+            $this->preloadLeaveFor([$employee]);
+        }
+
+        return $this->leavesByEmployee[$employee->id] ?? collect();
+    }
+
+    /**
      * The unit an employee's leave is measured in.
      */
     public function unitFor(Employee $employee): string
@@ -244,12 +303,11 @@ class LeaveService
         $from = Carbon::instance($from)->startOfDay();
         $to = Carbon::instance($to)->startOfDay();
 
-        $leaves = Leave::query()
-            ->where('employee_id', $employee->id)
-            ->overlapping($from, $to)
-            ->orderBy('start_date')
-            ->orderBy('id')
-            ->get();
+        // Filtered in memory rather than by query: the employee's records are
+        // already loaded, and the same set answers both the week and the year.
+        $leaves = $this->leavesOf($employee)->filter(
+            fn (Leave $leave): bool => $leave->start_date->lte($to) && $leave->end_date->gte($from)
+        );
 
         $dates = [];
 

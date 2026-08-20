@@ -815,9 +815,12 @@ class PayrollWeekTest extends TestCase
         $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
         unlink($tmp);
 
-        // 6 days x 135 = 810, plus the 81 cash share of the 135 premium = 891.
-        // The 54 bank share is a separate transfer and stays out of the total.
-        $this->assertEqualsWithDelta(891.0, (float) $sheet->getCell('P3')->getValue(), 0.01);
+        // 6 days x 135 = 810 is what the week's work earned, and the weekly total
+        // stays there — the 81 cash share of the 135 premium is shown in its own
+        // column and reaches the employee through cash (810 - 0 bank + 81 = 891).
+        // The 54 bank share is a separate transfer again.
+        $this->assertEqualsWithDelta(810.0, (float) $sheet->getCell('P3')->getValue(), 0.01, 'weekly total, settlement excluded');
+        $this->assertEqualsWithDelta(891.0, (float) $sheet->getCell('Q3')->getValue(), 0.01, 'cash carries the 81 on top');
         $this->assertEqualsWithDelta(81.0, (float) $sheet->getCell('T3')->getValue(), 0.01, 'BH cash');
         $this->assertEqualsWithDelta(54.0, (float) $sheet->getCell('U3')->getValue(), 0.01, 'BH bank');
 
@@ -846,13 +849,428 @@ class PayrollWeekTest extends TestCase
         $rows = $this->get('/payroll?year=2026&week=31')->assertOk()->viewData('rows');
         $row = $rows->firstWhere('employee.id', $emp->id);
 
-        // 3 days x 135 = 405, plus the 81 cash share = 486.
-        $this->assertEqualsWithDelta(486.0, (float) $row['weekly_amount'], 0.01);
+        // 3 days x 135 = 405 is the weekly total; the 81 cash share settles on top
+        // of it, so gross is 486 and that is what the cash/bank split works from.
+        $this->assertEqualsWithDelta(405.0, (float) $row['weekly_amount'], 0.01, 'the days worked, settlement excluded');
+        $this->assertEqualsWithDelta(486.0, (float) $row['gross_amount'], 0.01);
         $this->assertEqualsWithDelta(135.0, (float) $row['bh_amount'], 0.01);
         $this->assertEqualsWithDelta(0.0, (float) $row['arrears'], 0.01, 'no phantom advance');
         $this->assertEqualsWithDelta(200.0, (float) $row['bank_amount'], 0.01, 'the fixed amount, untouched');
         $this->assertEqualsWithDelta(54.0, (float) $row['bh_bank'], 0.01, 'separate transfer on top');
         $this->assertEqualsWithDelta(286.0, (float) $row['cash_amount'], 0.01, '486 - 200, incl. 81 BH cash');
+    }
+
+    public function test_the_bank_holiday_cash_share_tops_up_cash_without_moving_the_weekly_total_or_bank(): void
+    {
+        // The row the office reads: six days at 135 is 810 and stays 810, the bank
+        // transfer stays at its fixed 500, and the 49 cash share of the premium is
+        // handed over as extra cash — 310 normal + 49 = 359. The 86 bank share is
+        // its own transfer on top.
+        \App\Models\Holiday::factory()->on('2026-07-27')->create(['name' => 'August BH']);
+
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135,
+            'bh_bank_percent' => 63.7, 'bank_transfer_fix_amount' => 500,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0],
+        ], 2026, 31, false);
+
+        $row = $this->get('/payroll?year=2026&week=31')->assertOk()
+            ->viewData('rows')->firstWhere('employee.id', $emp->id);
+
+        $this->assertEqualsWithDelta(810.0, (float) $row['weekly_amount'], 0.01, 'weekly total is the work alone');
+        $this->assertEqualsWithDelta(359.0, (float) $row['cash_amount'], 0.01, '310 + the 49 cash share');
+        $this->assertEqualsWithDelta(500.0, (float) $row['bank_amount'], 0.01, 'the fixed transfer, unmoved by the premium');
+        $this->assertEqualsWithDelta(49.0, (float) $row['bh_cash'], 0.01);
+        $this->assertEqualsWithDelta(86.0, (float) $row['bh_bank'], 0.01);
+        $this->assertEqualsWithDelta(0.0, (float) $row['arrears'], 0.01, 'no phantom advance');
+
+        // Cash and bank still account for every euro of gross, and the premium
+        // is genuinely double pay once its bank share is counted: 859 + 86 = 945.
+        $this->assertEqualsWithDelta(859.0, (float) $row['gross_amount'], 0.01);
+        $this->assertEqualsWithDelta(
+            (float) $row['gross_amount'],
+            (float) $row['cash_amount'] + (float) $row['bank_amount'],
+            0.01,
+            'cash + bank reconcile to gross'
+        );
+        $this->assertEqualsWithDelta(945.0, (float) $row['gross_amount'] + (float) $row['bh_bank'], 0.01);
+    }
+
+    public function test_saving_a_settlement_week_keeps_the_weekly_total_and_gross_apart(): void
+    {
+        // Saving the page posts the weekly total back, so gross has to be rebuilt
+        // from it plus the cash share rather than stored as the same figure.
+        \App\Models\Holiday::factory()->on('2026-07-27')->create();
+
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135,
+            'bh_bank_percent' => 63.7, 'bank_transfer_fix_amount' => 500,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0],
+        ], 2026, 31, false);
+
+        $this->post('/payroll/save-week', [
+            'year' => 2026,
+            'week' => 31,
+            'items' => [[
+                'employee_id' => $emp->id,
+                'type' => 'daily_rate',
+                'weekly_amount' => 810,
+                'cash' => 359,
+                'bank' => 500,
+                'bh_amount' => 135,
+                'bh_cash' => 49,
+                'bh_bank' => 86,
+            ]],
+        ])->assertRedirect();
+
+        $item = \App\Models\PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(810.0, (float) $item->weekly_amount, 0.01);
+        $this->assertEqualsWithDelta(859.0, (float) $item->gross_amount, 0.01, 'gross rebuilt as 810 + 49');
+        $this->assertEqualsWithDelta(359.0, (float) $item->cash_amount, 0.01, 'the cash is not clamped back to 310');
+        $this->assertEqualsWithDelta(500.0, (float) $item->bank_amount, 0.01);
+        $this->assertEqualsWithDelta(0.0, (float) $item->advance_given, 0.01, 'bank never exceeded gross');
+        $this->assertEqualsWithDelta(0.0, (float) $item->advance_balance, 0.01);
+    }
+
+    /**
+     * Saves one settlement-week row and hands back what was stored.
+     * gross is 859: six days at 135 plus the 49 cash share of a 135 premium.
+     */
+    private function saveSettlementWeekCash(
+        Employee $emp,
+        float $cash,
+        float $bank,
+        float $recover = 0,
+        float $prevBalance = 0,
+        float|string|null $bhCashOverride = null
+    ): PayrollItem {
+        $this->post('/payroll/save-week', [
+            'year' => 2026,
+            'week' => 31,
+            'items' => [[
+                'employee_id' => $emp->id,
+                'type' => 'daily_rate',
+                'weekly_amount' => 810,
+                'cash' => $cash,
+                'bank' => $bank,
+                'bh_amount' => 135,
+                'bh_cash' => 49,
+                'bh_bank' => 86,
+                'bh_cash_override' => $bhCashOverride,
+                'recover' => $recover,
+                'prev_advance_balance' => $prevBalance,
+            ]],
+        ])->assertRedirect();
+
+        return PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+    }
+
+    private function settlementWeekEmployee(float $bankFix = 500): Employee
+    {
+        \App\Models\Holiday::factory()->on('2026-07-27')->create();
+
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135,
+            'bh_bank_percent' => 63.7, 'bank_transfer_fix_amount' => $bankFix,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0],
+        ], 2026, 31, false);
+
+        return $emp;
+    }
+
+    public function test_the_cash_cell_carries_a_tab_showing_the_bank_holiday_share_inside_it(): void
+    {
+        $emp = $this->settlementWeekEmployee();
+
+        $html = $this->get('/payroll?year=2026&week=31')->assertOk()->getContent();
+
+        // The figure is rendered client-side now that the split is editable, so
+        // the markup is asserted on the binding it will render from.
+        $this->assertStringContainsString('rounded-b-lg border border-t-0 border-violet-200', $html, 'the tab joins the cell above it');
+        $this->assertStringContainsString('.bh_cash > 0', $html, 'the tab follows the BH cash figure');
+        $this->assertStringContainsString("rounded-t-lg' : 'rounded-lg'", $html, 'the cash input squares off where the tab meets it');
+    }
+
+    public function test_an_ordinary_week_shows_no_bank_holiday_tab(): void
+    {
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135, 'bank_transfer_fix_amount' => 500,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1],
+        ], 2026, 30, false);
+
+        $html = $this->get('/payroll?year=2026&week=30')->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('border-t-0 border-violet-200', $html, 'no tab without a premium');
+        $this->assertStringNotContainsString('updateBhCash', $html, 'and nothing to edit either');
+    }
+
+    public function test_the_bank_holiday_split_can_be_set_by_hand_and_the_bank_side_follows(): void
+    {
+        // The premium is earned, not entered: whatever cash is set to, bank is the
+        // rest of the 135 and the two still add up.
+        $emp = $this->settlementWeekEmployee();
+
+        // Raising the premium's cash side raises what is earned, so the page
+        // re-settles cash against the unchanged transfer before posting: the
+        // 870 now payable less the 500 bank leaves 370 in hand.
+        $item = $this->saveSettlementWeekCash($emp, cash: 370, bank: 500, bhCashOverride: 60);
+
+        $this->assertEqualsWithDelta(135.0, (float) $item->bh_amount, 0.01, 'the premium itself is untouched');
+        $this->assertEqualsWithDelta(60.0, (float) $item->bh_cash, 0.01);
+        $this->assertEqualsWithDelta(75.0, (float) $item->bh_bank, 0.01, 'the bank side absorbed the change');
+        $this->assertEqualsWithDelta(60.0, (float) $item->bh_cash_override, 0.01, 'remembered as hand-set');
+        $this->assertEqualsWithDelta(
+            (float) $item->bh_amount,
+            (float) $item->bh_cash + (float) $item->bh_bank,
+            0.01,
+            'the split still accounts for the whole premium'
+        );
+
+        // Gross follows the new cash side: 810 + 60.
+        $this->assertEqualsWithDelta(870.0, (float) $item->gross_amount, 0.01);
+        $this->assertEqualsWithDelta(370.0, (float) $item->cash_amount, 0.01, '310 weekly surplus + the 60');
+        $this->assertEqualsWithDelta(500.0, (float) $item->bank_amount, 0.01, 'the weekly transfer is unmoved');
+    }
+
+    public function test_an_overridden_split_records_the_percentage_actually_paid(): void
+    {
+        // applied_bh_bank_percent is what the payslip reports, so it has to describe
+        // the split the employee got rather than the one the setting would give.
+        $emp = $this->settlementWeekEmployee();
+
+        $item = $this->saveSettlementWeekCash($emp, cash: 359, bank: 500, bhCashOverride: 60);
+
+        // 75 of 135 went to bank.
+        $this->assertEqualsWithDelta(55.56, (float) $item->applied_bh_bank_percent, 0.01);
+    }
+
+    public function test_an_override_larger_than_the_premium_is_clamped_to_it(): void
+    {
+        // Attendance can change after a split is set, so a stale override must
+        // never pay out more cash than the premium actually earned.
+        $emp = $this->settlementWeekEmployee();
+
+        $item = $this->saveSettlementWeekCash($emp, cash: 359, bank: 500, bhCashOverride: 500);
+
+        $this->assertEqualsWithDelta(135.0, (float) $item->bh_cash, 0.01, 'capped at the whole premium');
+        $this->assertEqualsWithDelta(0.0, (float) $item->bh_bank, 0.01);
+    }
+
+    public function test_a_hand_set_split_survives_a_week_refresh(): void
+    {
+        // Refreshing re-derives the premium from attendance. It must not quietly
+        // undo a deliberate decision about how that premium was paid.
+        $emp = $this->settlementWeekEmployee();
+        $this->saveSettlementWeekCash($emp, cash: 359, bank: 500, bhCashOverride: 60);
+
+        $this->post('/payroll/refresh-week', ['year' => 2026, 'week' => 31])->assertRedirect();
+
+        $item = PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(60.0, (float) $item->bh_cash, 0.01, 'the hand-set split held');
+        $this->assertEqualsWithDelta(75.0, (float) $item->bh_bank, 0.01);
+        $this->assertEqualsWithDelta(60.0, (float) $item->bh_cash_override, 0.01);
+        $this->assertEqualsWithDelta(870.0, (float) $item->gross_amount, 0.01, 'and gross was rebuilt around it');
+    }
+
+    public function test_clearing_the_override_hands_the_split_back_to_the_percentage(): void
+    {
+        $emp = $this->settlementWeekEmployee();
+        $this->saveSettlementWeekCash($emp, cash: 359, bank: 500, bhCashOverride: 60);
+
+        // Reset posts an empty override, the same as the reset button does.
+        $item = $this->saveSettlementWeekCash($emp, cash: 359, bank: 500, bhCashOverride: '');
+
+        $this->assertNull($item->bh_cash_override);
+        $this->assertEqualsWithDelta(49.0, (float) $item->bh_cash, 0.01, 'back to 63.7% bank');
+        $this->assertEqualsWithDelta(86.0, (float) $item->bh_bank, 0.01);
+        $this->assertEqualsWithDelta(63.7, (float) $item->applied_bh_bank_percent, 0.01);
+    }
+
+    public function test_a_week_without_an_override_still_follows_the_employee_percentage(): void
+    {
+        $emp = $this->settlementWeekEmployee();
+
+        $item = $this->saveSettlementWeekCash($emp, cash: 359, bank: 500);
+
+        $this->assertNull($item->bh_cash_override);
+        $this->assertEqualsWithDelta(49.0, (float) $item->bh_cash, 0.01);
+        $this->assertEqualsWithDelta(86.0, (float) $item->bh_bank, 0.01);
+    }
+
+    public function test_the_payroll_page_offers_the_split_as_editable_fields(): void
+    {
+        $emp = $this->settlementWeekEmployee();
+
+        $html = $this->get('/payroll?year=2026&week=31')->assertOk()->getContent();
+
+        $this->assertStringContainsString('updateBhCash', $html);
+        $this->assertStringContainsString('updateBhBank', $html);
+        $this->assertStringContainsString('resetBhSplit', $html, 'and a way back to the percentage');
+    }
+
+    public function test_lowering_cash_moves_the_difference_into_bank(): void
+    {
+        // Cash leads and bank absorbs, so the row always accounts for all 859.
+        $emp = $this->settlementWeekEmployee();
+
+        $item = $this->saveSettlementWeekCash($emp, cash: 300, bank: 500);
+
+        $this->assertEqualsWithDelta(300.0, (float) $item->cash_amount, 0.01);
+        $this->assertEqualsWithDelta(559.0, (float) $item->bank_amount, 0.01, 'bank took the 59 that cash gave up');
+        $this->assertEqualsWithDelta(859.0, (float) $item->cash_amount + (float) $item->bank_amount, 0.01);
+        $this->assertEqualsWithDelta(0.0, (float) $item->advance_given, 0.01, 'moving money between channels is not an advance');
+    }
+
+    public function test_raising_cash_takes_the_difference_out_of_bank(): void
+    {
+        $emp = $this->settlementWeekEmployee();
+
+        $item = $this->saveSettlementWeekCash($emp, cash: 600, bank: 500);
+
+        $this->assertEqualsWithDelta(600.0, (float) $item->cash_amount, 0.01);
+        $this->assertEqualsWithDelta(259.0, (float) $item->bank_amount, 0.01);
+        $this->assertEqualsWithDelta(859.0, (float) $item->cash_amount + (float) $item->bank_amount, 0.01);
+    }
+
+    public function test_cash_cannot_be_set_below_the_bank_holiday_cash_share(): void
+    {
+        // The 49 is the cash half of a split bh_bank_percent already decided, so
+        // it is not the admin's to re-route through the bank.
+        $emp = $this->settlementWeekEmployee();
+
+        $item = $this->saveSettlementWeekCash($emp, cash: 0, bank: 500);
+
+        $this->assertEqualsWithDelta(49.0, (float) $item->cash_amount, 0.01, 'floored at the BH cash share');
+        $this->assertEqualsWithDelta(810.0, (float) $item->bank_amount, 0.01);
+        $this->assertEqualsWithDelta(859.0, (float) $item->cash_amount + (float) $item->bank_amount, 0.01);
+    }
+
+    public function test_an_ordinary_week_has_no_cash_floor(): void
+    {
+        // Without a premium there is no earmarked cash, so all of it may go by bank.
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135, 'bank_transfer_fix_amount' => 500,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0],
+        ], 2026, 30, false);
+
+        $this->post('/payroll/save-week', [
+            'year' => 2026, 'week' => 30,
+            'items' => [[
+                'employee_id' => $emp->id, 'type' => 'daily_rate',
+                'weekly_amount' => 810, 'cash' => 0, 'bank' => 500,
+                'bh_cash' => 0, 'bh_bank' => 0,
+            ]],
+        ])->assertRedirect();
+
+        $item = PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(0.0, (float) $item->cash_amount, 0.01);
+        $this->assertEqualsWithDelta(810.0, (float) $item->bank_amount, 0.01);
+    }
+
+    public function test_recovering_an_advance_withholds_from_cash_without_inflating_bank(): void
+    {
+        // A recovery is money not paid at all, so unlike a cash edit it must not
+        // reappear in the bank transfer.
+        $emp = $this->settlementWeekEmployee();
+
+        $item = $this->saveSettlementWeekCash($emp, cash: 259, bank: 500, recover: 100, prevBalance: 100);
+
+        $this->assertEqualsWithDelta(100.0, (float) $item->advance_recovered, 0.01);
+        $this->assertEqualsWithDelta(259.0, (float) $item->cash_amount, 0.01, '859 - 100 recovered - 500 bank');
+        $this->assertEqualsWithDelta(500.0, (float) $item->bank_amount, 0.01, 'the transfer is untouched by a recovery');
+        $this->assertEqualsWithDelta(0.0, (float) $item->advance_balance, 0.01, 'the 100 is cleared');
+        $this->assertEqualsWithDelta(
+            759.0,
+            (float) $item->cash_amount + (float) $item->bank_amount,
+            0.01,
+            'paid out = gross less the recovery'
+        );
+    }
+
+    public function test_a_recovery_beyond_the_outstanding_advance_is_capped(): void
+    {
+        $emp = $this->settlementWeekEmployee();
+
+        $item = $this->saveSettlementWeekCash($emp, cash: 100, bank: 500, recover: 400, prevBalance: 100);
+
+        $this->assertEqualsWithDelta(100.0, (float) $item->advance_recovered, 0.01, 'only what was owed');
+        $this->assertEqualsWithDelta(759.0, (float) $item->cash_amount + (float) $item->bank_amount, 0.01);
+    }
+
+    public function test_giving_an_advance_still_transfers_more_than_was_earned(): void
+    {
+        // Bank above what is payable is how an advance is handed out, and must
+        // survive the cash-leads rule rather than being clamped back down.
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135, 'bank_transfer_fix_amount' => 500,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1],
+        ], 2026, 30, false);
+
+        $this->post('/payroll/save-week', [
+            'year' => 2026, 'week' => 30,
+            'items' => [[
+                'employee_id' => $emp->id, 'type' => 'daily_rate',
+                'weekly_amount' => 270, 'cash' => 0, 'bank' => 500,
+                'bh_cash' => 0, 'bh_bank' => 0,
+            ]],
+        ])->assertRedirect();
+
+        $item = PayrollItem::where('employee_id', $emp->id)->firstOrFail();
+
+        $this->assertEqualsWithDelta(500.0, (float) $item->bank_amount, 0.01, 'the transfer stands');
+        $this->assertEqualsWithDelta(0.0, (float) $item->cash_amount, 0.01);
+        $this->assertEqualsWithDelta(230.0, (float) $item->advance_given, 0.01, '500 - 270 earned');
+        $this->assertEqualsWithDelta(230.0, (float) $item->advance_balance, 0.01);
+    }
+
+    public function test_an_ordinary_week_still_splits_straight_off_the_weekly_total(): void
+    {
+        // Without a settlement, weekly total and gross are the same number, so
+        // nothing about the ordinary case moved.
+        $this->actingAs($this->admin());
+        $emp = Employee::factory()->create([
+            'type' => 'daily_rate', 'daily_rate' => 135,
+            'bh_bank_percent' => 63.7, 'bank_transfer_fix_amount' => 500,
+        ]);
+
+        app(\App\Services\AttendanceService::class)->saveDailyEmployee($emp->id, [
+            'days' => ['mon' => 1, 'tue' => 1, 'wed' => 1, 'thu' => 1, 'fri' => 1, 'sat' => 1, 'sun' => 0],
+        ], 2026, 30, false);
+
+        $row = $this->get('/payroll?year=2026&week=30')->assertOk()
+            ->viewData('rows')->firstWhere('employee.id', $emp->id);
+
+        $this->assertEqualsWithDelta(810.0, (float) $row['weekly_amount'], 0.01);
+        $this->assertEqualsWithDelta(810.0, (float) $row['gross_amount'], 0.01);
+        $this->assertEqualsWithDelta(310.0, (float) $row['cash_amount'], 0.01, '810 - 500, no premium in play');
+        $this->assertEqualsWithDelta(500.0, (float) $row['bank_amount'], 0.01);
     }
 
     public function test_bank_holiday_columns_are_absent_outside_the_settlement_week(): void

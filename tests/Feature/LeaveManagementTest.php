@@ -457,25 +457,57 @@ class LeaveManagementTest extends TestCase
 
     // ── Attendance grid ──────────────────────────────────────────────────────
 
-    public function test_a_leave_day_shows_l_on_the_attendance_grid(): void
+    public function test_a_leave_day_is_locked_to_l_on_the_attendance_grid(): void
     {
+        // A leave day is not just colored differently — it has no toggle at
+        // all, so a stray click can never flip it to P or A.
         $this->actingAs($this->admin());
         $employee = $this->dailyEmployee();
-        Leave::factory()->on('2026-07-28')->create(['employee_id' => $employee->id]); // Tuesday
+        Leave::factory()->on('2026-07-28')->create(['employee_id' => $employee->id, 'reason' => 'Annual leave']); // Tuesday
 
         $html = $this->get('/attendance?year='.self::WEEK_YEAR.'&week='.self::WEEK_NUMBER)->getContent();
 
         $tuesdayCell = $this->extractDayCell($html, $employee->id, 'tue');
         $mondayCell = $this->extractDayCell($html, $employee->id, 'mon');
 
-        // The P/A/L label is rendered client-side by Alpine (x-text), so the
-        // server-rendered markup is asserted on the state it will render from.
-        $this->assertStringContainsString("present ? 'P' : (onLeave ? 'L' : 'A')", $tuesdayCell);
-        $this->assertStringContainsString('onLeave: true', $tuesdayCell);
-        $this->assertStringContainsString('onLeave: false', $mondayCell, 'an ordinary day is unaffected');
+        $this->assertStringContainsString('>L<', $tuesdayCell, 'the leave day shows a locked L');
+        $this->assertStringContainsString('Annual leave', $tuesdayCell);
+        $this->assertStringNotContainsString('<button', $tuesdayCell, 'a leave day has no toggle to click');
+        $this->assertStringNotContainsString('data-day', $tuesdayCell, 'a leave day submits no attendance at all');
+
+        $this->assertStringContainsString('data-day="mon"', $mondayCell, 'an ordinary day is still an interactive toggle');
     }
 
-    public function test_a_day_already_marked_present_still_shows_p_over_leave(): void
+    public function test_a_leave_day_is_locked_even_before_any_attendance_is_saved_for_the_week(): void
+    {
+        // Every weekday defaults to present so the admin only clicks the
+        // exceptions — that default must not paper over an unsaved leave day.
+        $this->actingAs($this->admin());
+        $employee = $this->dailyEmployee();
+        Leave::factory()->on('2026-07-28')->create(['employee_id' => $employee->id]); // Tuesday
+
+        $html = $this->get('/attendance?year='.self::WEEK_YEAR.'&week='.self::WEEK_NUMBER)->getContent();
+        $tuesdayCell = $this->extractDayCell($html, $employee->id, 'tue');
+        $mondayCell = $this->extractDayCell($html, $employee->id, 'mon');
+
+        $this->assertStringContainsString('>L<', $tuesdayCell);
+        $this->assertStringContainsString('present: true', $mondayCell, 'an ordinary unsaved weekday still defaults present');
+    }
+
+    public function test_an_hourly_leave_day_is_also_locked_before_any_attendance_is_saved(): void
+    {
+        $this->actingAs($this->admin());
+        $employee = $this->hourlyEmployee();
+        Leave::factory()->on('2026-07-28')->create(['employee_id' => $employee->id, 'hours_per_day' => 8]); // Tuesday
+
+        $html = $this->get('/attendance?year='.self::WEEK_YEAR.'&week='.self::WEEK_NUMBER)->getContent();
+        $tuesdayCell = $this->extractDayCell($html, $employee->id, 'tue');
+
+        $this->assertStringContainsString('>L<', $tuesdayCell);
+        $this->assertStringNotContainsString('hoursVal', $tuesdayCell, 'no hours toggle is rendered for a locked leave day');
+    }
+
+    public function test_a_day_already_saved_present_stays_an_interactive_toggle_over_leave(): void
     {
         $this->actingAs($this->admin());
         $employee = $this->dailyEmployee();
@@ -492,10 +524,16 @@ class LeaveManagementTest extends TestCase
         $html = $this->get('/attendance?year='.self::WEEK_YEAR.'&week='.self::WEEK_NUMBER)->getContent();
         $tuesdayCell = $this->extractDayCell($html, $employee->id, 'tue');
 
+        $this->assertStringContainsString('data-day="tue"', $tuesdayCell, 'a day already saved present is not locked');
         $this->assertStringContainsString('present: true', $tuesdayCell);
-        $this->assertStringContainsString('onLeave: true', $tuesdayCell, 'still flagged, in case the toggle is reverted');
     }
 
+    /**
+     * Locates one employee's day cell by position rather than a data-day
+     * marker — a locked leave day has no such marker, same as an
+     * already-established "not employed" cell. The row always has exactly
+     * four identity columns (code/name/dept/type) before the seven day cells.
+     */
     private function extractDayCell(string $html, int $employeeId, string $day): string
     {
         $rowStart = strpos($html, 'data-employee="'.$employeeId.'"');
@@ -504,12 +542,14 @@ class LeaveManagementTest extends TestCase
         $rowEnd = strpos($html, '</tr>', $rowStart);
         $row = substr($html, $rowStart, $rowEnd - $rowStart);
 
-        $cellStart = strpos($row, 'data-day="'.$day.'"');
-        $this->assertNotFalse($cellStart, "day cell {$day} not found");
+        $dayIndex = array_search($day, ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], true);
+        $this->assertNotFalse($dayIndex, "unknown day {$day}");
 
-        $cellEnd = strpos($row, '</td>', $cellStart);
+        $cells = explode('<td', $row);
+        $cell = $cells[1 + 4 + $dayIndex] ?? null;
+        $this->assertNotNull($cell, "day cell {$day} not found");
 
-        return substr($row, $cellStart, $cellEnd - $cellStart);
+        return '<td'.$cell;
     }
 
     private function finaliseWeek(): void

@@ -12,6 +12,7 @@ use App\Models\EmployeeRate;
 use App\Models\HourlyAttendance;
 use App\Models\PayrollItem;
 use App\Models\User;
+use App\Services\LeaveService;
 use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
@@ -88,6 +89,11 @@ class EmployeeController extends Controller
             ->limit(6)
             ->get();
 
+        // Leave earned and taken across the leave year running now. Counted in
+        // days for daily-rate staff and hours for hourly staff, the same way the
+        // Leave page and payroll do it.
+        $leaveBalance = app(LeaveService::class)->balanceFor($employee);
+
         return view('employees.show', compact(
             'employee',
             'rateHistory',
@@ -95,6 +101,7 @@ class EmployeeController extends Controller
             'auditLogs',
             'attendanceHistory',
             'payrollHistory',
+            'leaveBalance',
         ));
     }
 

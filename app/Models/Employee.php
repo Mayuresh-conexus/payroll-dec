@@ -289,25 +289,34 @@ class Employee extends Model
     }
 
     /**
+     * Rates already looked up on this instance, keyed by type and date.
+     *
+     * One payroll row asks for the same rate several times over — once for the
+     * week's pay, again for the bank-holiday premium, again for leave — and the
+     * answer cannot change while a page renders.
+     *
+     * @var array<string, float|null>
+     */
+    private array $rateAtCache = [];
+
+    /**
      * Get effective rate for given date and type.
      * $type: daily_rate | hourly_rate | hours_per_day
      */
     public function rateAt(\DateTimeInterface $date, string $type)
     {
-        $d = Carbon::instance($date)->toDateString();
+        $key = $type.'|'.Carbon::instance($date)->toDateString();
 
-        $rate = $this->rates()
-            ->where('rate_type', $type)
-            ->where(function ($q) use ($d) {
-                $q->whereNull('effective_from')->orWhere('effective_from', '<=', $d);
-            })
-            ->where(function ($q) use ($d) {
-                $q->whereNull('effective_to')->orWhere('effective_to', '>=', $d);
-            })
-            ->orderByDesc('effective_from')
-            ->first();
+        if (array_key_exists($key, $this->rateAtCache)) {
+            return $this->rateAtCache[$key];
+        }
 
-        return $rate ? (float) $rate->amount : null;
+        // Delegated rather than queried again: rateEntryAt applies the identical
+        // window and already reads from the rates relation when it is loaded, so
+        // a caller that eager-loads them pays nothing per row here.
+        $entry = $this->rateEntryAt($type, $date);
+
+        return $this->rateAtCache[$key] = $entry ? (float) $entry->amount : null;
     }
 
     protected static function booted()

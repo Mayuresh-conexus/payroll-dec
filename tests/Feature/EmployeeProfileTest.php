@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\DailyRateAttendance;
 use App\Models\Employee;
+use App\Models\HourlyAttendance;
+use App\Models\Leave;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -197,6 +199,81 @@ class EmployeeProfileTest extends TestCase
 
         $response->assertOk()
             ->assertViewHas('payrollHistory');
+    }
+
+    // ── Leave balance ─────────────────────────────────────────────────────────
+
+    public function test_profile_shows_leave_used_and_remaining_for_daily_staff(): void
+    {
+        $admin = $this->admin();
+        $employee = Employee::factory()->create([
+            'type' => 'daily_rate',
+            'daily_rate' => 600,
+            'weekly_active_days' => 5,
+            'joining_date' => '2026-01-15',
+        ]);
+
+        // Mon–Wed of week 31, 2026 — three working days of leave.
+        Leave::factory()->on('2026-07-27', '2026-07-29')->create(['employee_id' => $employee->id]);
+
+        $response = $this->actingAs($admin)->get(route('employees.show', $employee));
+
+        $balance = $response->assertOk()->viewData('leaveBalance');
+
+        $this->assertSame('days', $balance['unit']);
+        $this->assertSame(20.0, $balance['entitlement'], '4 weeks of a 5-day week');
+        $this->assertSame(3.0, $balance['taken']);
+        $this->assertSame(17.0, $balance['remaining']);
+
+        $response->assertSee('Leave Remaining')->assertSee('3 used of 20');
+    }
+
+    public function test_profile_shows_leave_in_hours_for_hourly_staff(): void
+    {
+        $admin = $this->admin();
+        $employee = Employee::factory()->create([
+            'type' => 'hourly',
+            'hourly_rate' => 90,
+            'hours_per_day' => 8,
+            'weekly_active_days' => 5,
+            'joining_date' => '2026-01-15',
+        ]);
+
+        // 40 hours clocked accrues 8% = 3.2 hours of leave.
+        HourlyAttendance::create([
+            'employee_id' => $employee->id,
+            'year' => 2026,
+            'week_number' => 31,
+            'hours_map' => ['mon' => 8, 'tue' => 8, 'wed' => 8, 'thu' => 8, 'fri' => 8, 'sat' => 0, 'sun' => 0],
+            'ot_map' => [],
+            'total_hours' => 40,
+            'overtime_hours' => 0,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('employees.show', $employee));
+
+        $balance = $response->assertOk()->viewData('leaveBalance');
+
+        $this->assertSame('hours', $balance['unit']);
+        $this->assertSame(3.2, $balance['entitlement']);
+        $this->assertSame(0.0, $balance['taken']);
+        $this->assertSame(3.2, $balance['remaining']);
+
+        $response->assertSee('hrs')->assertSee('0 used of 3.2');
+    }
+
+    public function test_a_manager_sees_the_leave_balance_of_their_own_team(): void
+    {
+        $admin = $this->admin();
+        $manager = $this->manager();
+        $employee = $this->dailyEmployee();
+        $this->assign($manager, $employee, $admin);
+
+        $this->actingAs($manager)
+            ->get(route('employees.show', $employee))
+            ->assertOk()
+            ->assertViewHas('leaveBalance')
+            ->assertSee('Leave Remaining');
     }
 
     // ── View renders employee details ─────────────────────────────────────────

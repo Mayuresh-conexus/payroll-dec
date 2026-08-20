@@ -31,6 +31,71 @@ export function payrollPage() {
             return Number(v || 0).toFixed(2);
         },
 
+        /**
+         * Everything the employee earned this week — the weekly total plus any
+         * bank-holiday cash share settling in it.
+         *
+         * The weekly total deliberately excludes that share so the column reads
+         * the same in a settlement week as in any other, but the cash handed
+         * over and every advance figure are measured against the whole amount.
+         * Mirror of PayrollService::computeAdvance.
+         */
+        earningsOf(it) {
+            return Number(it.weekly_amount || 0) + Number(it.bh_cash || 0);
+        },
+
+        earnings(index) {
+            return this.earningsOf(this.items[index]);
+        },
+
+        /**
+         * What actually gets paid out this week: everything earned, less any
+         * advance being recovered. Recovery is withheld rather than moved, so it
+         * shrinks the pot that cash and bank divide between them.
+         */
+        payableOf(it) {
+            return Math.max(0, this.earningsOf(it) - Number(it.recover || 0));
+        },
+
+        /**
+         * The least cash this employee can be handed.
+         *
+         * The bank-holiday cash share is not discretionary — bh_bank_percent has
+         * already decided how the premium splits, so paying less than the cash
+         * half in cash would quietly rewrite that split. Capped at what is
+         * payable so a large recovery cannot demand an impossible minimum.
+         */
+        cashFloorOf(it) {
+            return Math.min(Number(it.bh_cash || 0), this.payableOf(it));
+        },
+
+        cashFloor(index) {
+            return this.cashFloorOf(this.items[index]);
+        },
+
+        /**
+         * Enter moves down the same column, Shift+Enter back up, so a column can
+         * be typed straight through without reaching for the mouse.
+         *
+         * Enter is intercepted rather than left alone because this table is one
+         * big form — the default would submit the payroll halfway down it. The
+         * arrow keys are deliberately left to the browser, where they still step
+         * the number as usual.
+         */
+        focusSiblingRow(event, direction) {
+            const el  = event.target;
+            const col = el.dataset.col;
+            const row = Number(el.dataset.row);
+
+            if (!col || !Number.isFinite(row)) return;
+
+            const next = document.querySelector(`[data-col="${col}"][data-row="${row + direction}"]`);
+            if (!next) return;
+
+            next.focus();
+            next.select?.();
+        },
+
         /* ── lifecycle ───────────────────────────────────────────────────── */
 
         init(serverRows) {
@@ -54,15 +119,19 @@ export function payrollPage() {
                 // and this test is unaffected by it.
                 const isSaved       = savedCash > 0 || Math.abs(savedBank - bankFix) > 0.005;
 
+                // The cash share settles on top of the weekly total, so it is
+                // part of what gets split into cash and bank.
+                const earnings      = weeklyAmount + bhCash;
+
                 let cashAmount, bankAmount, recover;
                 if (isSaved) {
                     bankAmount = savedBank;
                     cashAmount = savedCash;
-                    const normalCash = Math.max(0, weeklyAmount - bankAmount);
+                    const normalCash = Math.max(0, earnings - bankAmount);
                     recover = Math.max(0, Math.round((normalCash - savedCash) * 100) / 100);
                 } else {
                     bankAmount = bankFix;
-                    cashAmount = Math.max(0, weeklyAmount - bankFix);
+                    cashAmount = Math.max(0, earnings - bankFix);
                     recover    = 0;
                 }
 
@@ -81,6 +150,8 @@ export function payrollPage() {
                     bh_amount:            bhAmount,
                     bh_cash:              bhCash,
                     bh_bank:              bhBank,
+                    bh_cash_override:     row.bh_cash_override ?? null,
+                    bh_bank_percent:      Number(row.bh_bank_percent || 0),
                     prev_advance_balance: prevBalance,
                 };
             });
@@ -106,7 +177,7 @@ export function payrollPage() {
 
         advanceBalance(index) {
             const it      = this.items[index];
-            const earned  = Number(it.weekly_amount        || 0);
+            const earned  = this.earningsOf(it);
             const bank    = Number(it.bank                 || 0);
             const prev    = Number(it.prev_advance_balance || 0);
             const recover = Number(it.recover              || 0);
@@ -116,7 +187,7 @@ export function payrollPage() {
 
         maxRecover(index) {
             const it     = this.items[index];
-            const earned = Number(it.weekly_amount        || 0);
+            const earned = this.earningsOf(it);
             const bank   = Number(it.bank                 || 0);
             const prev   = Number(it.prev_advance_balance || 0);
             return Math.round(Math.min(prev, Math.max(0, earned - bank)) * 100) / 100;
@@ -125,7 +196,7 @@ export function payrollPage() {
         /** Total surplus cash available this week before any recovery (earned − bank). */
         weeklySurplus(index) {
             const it     = this.items[index];
-            const earned = Number(it.weekly_amount || 0);
+            const earned = this.earningsOf(it);
             const bank   = Number(it.bank          || 0);
             return Math.round(Math.max(0, earned - bank) * 100) / 100;
         },
@@ -137,12 +208,79 @@ export function payrollPage() {
             return Math.round(Math.max(0, surplus - recover) * 100) / 100;
         },
 
+        /* ── bank-holiday split ──────────────────────────────────────────── */
+
+        /**
+         * The premium is earned and never edited here — only how it divides. So
+         * each side absorbs the other, and the two always add back to bh_amount.
+         *
+         * Changing the split changes what was earned in cash, so the row is
+         * re-settled afterwards: the bank transfer holds and cash takes the
+         * difference, which is where the premium's cash side is actually paid.
+         */
+        updateBhCash(index) {
+            const it     = this.items[index];
+            const amount = Number(it.bh_amount || 0);
+            let   cash   = Number(it.bh_cash || 0);
+            if (!isFinite(cash) || cash < 0) cash = 0;
+            if (cash > amount) cash = amount;
+
+            it.bh_cash = Math.round(cash * 100) / 100;
+            it.bh_bank = Math.round((amount - cash) * 100) / 100;
+            it.bh_cash_override = it.bh_cash;
+            this.resettleRow(index);
+        },
+
+        updateBhBank(index) {
+            const it     = this.items[index];
+            const amount = Number(it.bh_amount || 0);
+            let   bank   = Number(it.bh_bank || 0);
+            if (!isFinite(bank) || bank < 0) bank = 0;
+            if (bank > amount) bank = amount;
+
+            it.bh_bank = Math.round(bank * 100) / 100;
+            it.bh_cash = Math.round((amount - bank) * 100) / 100;
+            it.bh_cash_override = it.bh_cash;
+            this.resettleRow(index);
+        },
+
+        /** Whether this row's split was set by hand rather than by the percentage. */
+        bhOverridden(index) {
+            return this.items[index].bh_cash_override !== null
+                && this.items[index].bh_cash_override !== undefined;
+        },
+
+        /** Hand the split back to the employee's percentage. Mirror of BankHolidayService::splitPremium. */
+        resetBhSplit(index) {
+            const it      = this.items[index];
+            const amount  = Number(it.bh_amount || 0);
+            const percent = Number(it.bh_bank_percent || 0);
+            const bank    = Math.round(amount * percent / 100 * 100) / 100;
+
+            it.bh_bank = bank;
+            it.bh_cash = Math.round((amount - bank) * 100) / 100;
+            it.bh_cash_override = null;
+            this.resettleRow(index);
+        },
+
+        /**
+         * Re-derive cash after the earnings moved, holding the bank transfer
+         * steady — the premium's cash side is paid in cash, not by transfer.
+         */
+        resettleRow(index) {
+            const it      = this.items[index];
+            const payable = this.payableOf(it);
+            const bank    = Number(it.bank || 0);
+            it.cash = bank > payable ? 0 : Math.round(Math.max(0, payable - bank) * 100) / 100;
+            this.recalculateTotals();
+        },
+
         /* ── settlement ──────────────────────────────────────────────────── */
 
         setRecover(index) {
             const it      = this.items[index];
             const bank    = Number(it.bank          || 0);
-            const weekly  = Number(it.weekly_amount || 0);
+            const weekly  = this.earningsOf(it);
             let   recover = Number(it.recover       || 0);
             if (!isFinite(recover) || recover < 0) recover = 0;
             recover = Math.min(recover, this.maxRecover(index));
@@ -159,28 +297,46 @@ export function payrollPage() {
 
         /* ── row calculations ────────────────────────────────────────────── */
 
+        /**
+         * Cash was edited: bank absorbs the difference so the row always adds up.
+         *
+         * Recovery is left alone — reducing cash here re-routes money to the bank,
+         * it does not repay an advance. That is what the settle flow is for.
+         */
         recalcRow(index) {
             const it      = this.items[index];
-            const weekly  = Number(it.weekly_amount || 0);
-            const bank    = Number(it.bank          || 0);
-            let   cash    = Number(it.cash          || 0);
-            if (!isFinite(cash) || cash < 0) cash = 0;
-            const surplus = Math.max(0, weekly - bank);
-            if (cash > surplus) cash = surplus;
-            it.cash    = Math.round(cash * 100) / 100;
-            it.bank    = Math.round(bank * 100) / 100;
-            it.recover = Math.round(Math.max(0, surplus - cash) * 100) / 100;
+            const payable = this.payableOf(it);
+            const bank    = Number(it.bank || 0);
+
+            // An advance week already transfers more than was earned, so there is
+            // nothing left for cash to claim and nothing for bank to absorb.
+            if (bank > payable) {
+                it.cash = 0;
+                this.recalculateTotals();
+                return;
+            }
+
+            const floor = this.cashFloorOf(it);
+            let   cash  = Number(it.cash || 0);
+            if (!isFinite(cash) || cash < floor) cash = floor;
+            if (cash > payable) cash = payable;
+
+            it.cash = Math.round(cash * 100) / 100;
+            it.bank = Math.round(Math.max(0, payable - cash) * 100) / 100;
             this.recalculateTotals();
         },
 
+        /**
+         * Bank was edited: cash takes what is left. Setting bank above what is
+         * payable is how an advance is given, and leaves nothing in cash.
+         */
         updateFromBank(index) {
-            const it     = this.items[index];
-            const weekly = Number(it.weekly_amount || 0);
-            let   bank   = Number(it.bank          || 0);
+            const it      = this.items[index];
+            const payable = this.payableOf(it);
+            let   bank    = Number(it.bank || 0);
             if (!isFinite(bank) || bank < 0) bank = 0;
-            it.bank    = Math.round(bank * 100) / 100;
-            it.cash    = bank > weekly ? 0 : Math.round(Math.max(0, weekly - bank) * 100) / 100;
-            it.recover = 0;
+            it.bank = Math.round(bank * 100) / 100;
+            it.cash = bank > payable ? 0 : Math.round(Math.max(0, payable - bank) * 100) / 100;
             this.recalculateTotals();
         },
 

@@ -110,8 +110,12 @@ class AttendanceService
         // Bank holidays are cleared once a month, in the week holding the month's
         // last day, so an ordinary week settles nothing. Only the cash share counts
         // as earnings — the bank share rides alongside as its own transfer.
+        //
+        // A split the admin set by hand survives this recalculation: refreshing a
+        // week to pick up an attendance change must not silently undo a deliberate
+        // decision about how the premium was paid. Only the amount is re-derived.
         [$bhAmount, $bhCash, $bhBank, $bhPercent] = $employee
-            ? $this->bankHolidays->settlementFor($employee, $year, $week)
+            ? $this->bankHolidays->settlementFor($employee, $year, $week, $this->bhCashOverrideFor($employeeId, $year, $week))
             : [0.0, 0.0, 0.0, 0.0];
 
         // Leave is paid like the days it replaces, so it joins the week's earnings
@@ -120,7 +124,13 @@ class AttendanceService
             ? $this->leaves->weekPayFor($employee, $year, $week)
             : [0.0, 0.0, 0.0];
 
-        $gross = $weeklyAmount + $addonsTotal + $bhCash + $leaveAmount;
+        // What the week itself earned. The bank-holiday cash share stays outside
+        // this figure: it is a monthly settlement that tops up the cash handed
+        // over without changing what the week's work was worth, so the weekly
+        // total on the payroll page reads the same in a settlement week as in
+        // any other. Gross is the two together — what cash + bank must add to.
+        $weekEarnings = $weeklyAmount + $addonsTotal + $leaveAmount;
+        $gross = $weekEarnings + $bhCash;
         $bankAmountFix = (float) ($employee?->bank_transfer_fix_amount ?? 0);
 
         // Advance balance: only advance_given is auto-computed here.
@@ -144,7 +154,7 @@ class AttendanceService
                 'gross_amount' => $gross,
                 'cash_amount' => 0,
                 'bank_amount' => $bankAmountFix,
-                'weekly_amount' => $gross,
+                'weekly_amount' => $weekEarnings,
                 'addons' => $addons,
                 'applied_daily_rate' => $appliedDaily,
                 'note' => null,
@@ -226,7 +236,10 @@ class AttendanceService
             ? $this->leaves->weekPayFor($employee, $year, $week)
             : [0.0, 0.0, 0.0];
 
-        $gross = $weeklyAmount + $addonsTotal + $bhCash + $leaveAmount;
+        // Same split as the daily branch: the week's own earnings, then gross on
+        // top of it once the bank-holiday cash share settles.
+        $weekEarnings = $weeklyAmount + $addonsTotal + $leaveAmount;
+        $gross = $weekEarnings + $bhCash;
         $bankAmountFix = (float) ($employee?->bank_transfer_fix_amount ?? 0);
 
         // Advance balance: only advance_given is auto-computed here.
@@ -249,7 +262,7 @@ class AttendanceService
                 'gross_amount' => $gross,
                 'cash_amount' => 0,
                 'bank_amount' => $bankAmountFix,
-                'weekly_amount' => $gross,
+                'weekly_amount' => $weekEarnings,
                 'addons' => $addons,
                 'applied_hourly_rate' => $appliedHourly,
                 'applied_hours_per_day' => $employee?->hours_per_day ?? null,
@@ -267,6 +280,23 @@ class AttendanceService
                 'advance_balance' => $advanceBalance,
             ]
         );
+    }
+
+    /**
+     * The hand-set cash side of this week's premium, or null if the employee's
+     * percentage is still deciding it.
+     */
+    private function bhCashOverrideFor(int $employeeId, int $year, int $week): ?float
+    {
+        $override = PayrollItem::query()
+            ->where('employee_id', $employeeId)
+            ->whereHas('run', fn ($q) => $q
+                ->where('year', $year)
+                ->where('week_number', $week)
+                ->where('period_type', 'weekly'))
+            ->value('bh_cash_override');
+
+        return $override === null ? null : (float) $override;
     }
 
     /**
@@ -453,7 +483,7 @@ class AttendanceService
             })
             ->orderBy('pr.year')
             ->orderBy('pr.week_number')
-            ->select('pi.bank_amount', 'pi.weekly_amount', 'pi.advance_recovered', 'pr.year', 'pr.week_number')
+            ->select('pi.bank_amount', 'pi.gross_amount', 'pi.advance_recovered', 'pr.year', 'pr.week_number')
             ->get();
 
         $balance = 0.0;
@@ -462,7 +492,7 @@ class AttendanceService
             if ($itemMonday->lt($lookbackFrom)) {
                 continue;
             }
-            $given = max(0.0, (float) $row->bank_amount - (float) $row->weekly_amount);
+            $given = max(0.0, (float) $row->bank_amount - (float) $row->gross_amount);
             $recovered = (float) ($row->advance_recovered ?? 0);
             $balance = max(0.0, $balance + $given - $recovered);
         }

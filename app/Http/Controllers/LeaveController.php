@@ -35,6 +35,9 @@ class LeaveController extends Controller
             ->orderBy('name')
             ->get();
 
+        // One query for the whole table rather than two per employee.
+        $this->leaveService->preloadLeaveFor($employees);
+
         $balances = $employees->mapWithKeys(fn (Employee $employee): array => [
             $employee->id => $this->leaveService->balanceFor($employee),
         ]);

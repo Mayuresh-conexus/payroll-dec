@@ -112,25 +112,56 @@ class PayrollController extends Controller
             $cash = (float) ($row['cash'] ?? 0);
             $bank = (float) ($row['bank'] ?? 0);
 
-            // Allow bank > weekly (advance scenario). When bank exceeds earnings, cash must be 0.
-            // Otherwise cap so cash + bank never exceeds weekly.
-            if ($bank > $weeklyAmount) {
+            $emp = Employee::find($row['employee_id']);
+
+            // The premium itself is earned, not entered: it comes from the
+            // holidays worked, so the posted amount is taken but the split is
+            // re-derived here rather than trusted. An admin may set the cash side
+            // by hand, and bank is then always the remainder — the two can never
+            // drift apart, whatever the browser sent.
+            $bhAmount = round((float) ($row['bh_amount'] ?? 0), 2);
+            $bhOverride = isset($row['bh_cash_override']) && $row['bh_cash_override'] !== ''
+                ? round((float) $row['bh_cash_override'], 2)
+                : null;
+
+            [$bhCash, $bhBank, $bhPercent] = app(BankHolidayService::class)
+                ->splitPremium($bhAmount, (float) ($emp?->bh_bank_percent ?? 0), $bhOverride);
+
+            // The weekly total is what the week's work earned; the bank-holiday
+            // cash share settles on top of it. Everything below splits gross —
+            // the two together — because that is the money actually handed over.
+            $gross = round($weeklyAmount + $bhCash, 2);
+
+            // Recovery is withheld from the payout rather than moved between the
+            // two channels, so it comes off before cash and bank divide the rest.
+            $prevBalance = (float) ($row['prev_advance_balance'] ?? 0);
+            $advanceRecovered = round(min((float) ($row['recover'] ?? 0), max(0.0, $prevBalance)), 2);
+            $payable = round(max(0, $gross - $advanceRecovered), 2);
+
+            // Whatever the premium's cash side works out to, that much has to
+            // reach the employee as cash — otherwise the split just decided above
+            // would be undone by re-routing it through the bank. Capped at what is
+            // payable so a large recovery cannot demand an impossible minimum.
+            $cashFloor = min($bhCash, $payable);
+
+            if ($bank > $payable) {
+                // Advance week: the transfer deliberately exceeds what was earned,
+                // so it stands as entered and there is nothing left to hand over.
                 $cash = 0;
-            } elseif ($cash + $bank > $weeklyAmount) {
-                $bank = max(0, $weeklyAmount - $cash);
+            } else {
+                // Cash leads and bank absorbs the difference, so cash + bank always
+                // account for exactly what is payable and nothing goes unrecorded.
+                $cash = min(max($cash, $cashFloor), $payable);
+                $bank = round($payable - $cash, 2);
             }
 
-            $emp = Employee::find($row['employee_id']);
             $weekStart = Carbon::now()->setISODate($data['year'], $data['week'], 1);
 
             // Advance balance:
             //   advance_given     = max(0, bank - earned)        — advance weeks only
-            //   advance_recovered = explicit recover input       — cash deduction by admin
+            //   advance_recovered = explicit recover input       — cash withheld by admin
             //   new_balance       = max(0, prev + given - recovered)
-            $prevBalance = (float) ($row['prev_advance_balance'] ?? 0);
-            $availableCash = max(0, $weeklyAmount - $bank);
-            $advanceGiven = round(max(0, $bank - $weeklyAmount), 2);
-            $advanceRecovered = round(min((float) ($row['recover'] ?? 0), min($prevBalance, $availableCash)), 2);
+            $advanceGiven = round(max(0, $bank - $gross), 2);
             $advanceBalance = round(max(0, $prevBalance + $advanceGiven - $advanceRecovered), 2);
 
             PayrollItem::updateOrCreate(
@@ -141,7 +172,7 @@ class PayrollController extends Controller
                     'present_days' => $row['present_days'] ?? null,
                     'total_hours' => $row['total_hours'] ?? null,
                     'weekly_amount' => $weeklyAmount,
-                    'gross_amount' => $weeklyAmount,
+                    'gross_amount' => $gross,
                     'cash_amount' => $cash,
                     'bank_amount' => $bank,
                     'overtime_amount' => $row['type'] === 'daily_rate' ? ($row['overtime'] ?? 0) : null,
@@ -149,10 +180,13 @@ class PayrollController extends Controller
                     'applied_daily_rate' => $emp ? ($emp->rateAt($weekStart, 'daily_rate') ?? $emp->daily_rate) : null,
                     'applied_hourly_rate' => $emp ? ($emp->rateAt($weekStart, 'hourly_rate') ?? $emp->hourly_rate) : null,
                     'applied_hours_per_day' => $emp ? ($emp->rateAt($weekStart, 'hours_per_day') ?? $emp->hours_per_day) : null,
-                    'bh_amount' => round((float) ($row['bh_amount'] ?? 0), 2),
-                    'bh_cash' => round((float) ($row['bh_cash'] ?? 0), 2),
-                    'bh_bank' => round((float) ($row['bh_bank'] ?? 0), 2),
-                    'applied_bh_bank_percent' => $emp?->bh_bank_percent,
+                    'bh_amount' => $bhAmount,
+                    'bh_cash' => $bhCash,
+                    'bh_bank' => $bhBank,
+                    'bh_cash_override' => $bhOverride,
+                    // The split that was actually paid, which is the employee's
+                    // percentage only while nobody has overridden it.
+                    'applied_bh_bank_percent' => $bhPercent,
                     'leave_days' => round((float) ($row['leave_days'] ?? 0), 2),
                     'leave_hours' => round((float) ($row['leave_hours'] ?? 0), 2),
                     'leave_amount' => round((float) ($row['leave_amount'] ?? 0), 2),

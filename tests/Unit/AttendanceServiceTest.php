@@ -588,8 +588,10 @@ class AttendanceServiceTest extends TestCase
     public function test_working_a_bank_holiday_pays_double_and_splits_the_extra(): void
     {
         // 135/day with 40% of the premium to bank: 135 base + 135 extra = 270.
-        // Only the 81 cash share is weekly earnings — the 54 bank share leaves as
-        // its own transfer, so weekly_amount is 135 + 81 = 216.
+        // The weekly total stays at what the week's work earned (135) so the
+        // column reads the same in a settlement week as in any other. The 81 cash
+        // share settles on top of it, giving gross 216, and the 54 bank share
+        // leaves as its own transfer.
         // Week 31 of 2026 holds 31 July, so it settles that month.
         \App\Models\Holiday::factory()->on('2026-07-27')->create(['name' => 'August BH']);
 
@@ -602,7 +604,8 @@ class AttendanceServiceTest extends TestCase
 
         $item = \App\Models\PayrollItem::where('employee_id', $emp->id)->firstOrFail();
 
-        $this->assertEqualsWithDelta(216.0, (float) $item->weekly_amount, 0.001, 'base + cash share only');
+        $this->assertEqualsWithDelta(135.0, (float) $item->weekly_amount, 0.001, 'the day worked, without the settlement');
+        $this->assertEqualsWithDelta(216.0, (float) $item->gross_amount, 0.001, 'base + cash share');
         $this->assertEqualsWithDelta(135.0, (float) $item->bh_amount, 0.001);
         $this->assertEqualsWithDelta(81.0, (float) $item->bh_cash, 0.001);
         $this->assertEqualsWithDelta(54.0, (float) $item->bh_bank, 0.001);
@@ -610,7 +613,7 @@ class AttendanceServiceTest extends TestCase
         $this->assertEqualsWithDelta(40.0, (float) $item->applied_bh_bank_percent, 0.001);
 
         // Double pay still holds across the two channels: 216 + 54 = 270.
-        $this->assertEqualsWithDelta(270.0, (float) $item->weekly_amount + (float) $item->bh_bank, 0.001);
+        $this->assertEqualsWithDelta(270.0, (float) $item->gross_amount + (float) $item->bh_bank, 0.001);
     }
 
     public function test_a_bank_holiday_that_is_not_worked_pays_nothing_extra(): void
@@ -645,7 +648,8 @@ class AttendanceServiceTest extends TestCase
 
         $item = \App\Models\PayrollItem::where('employee_id', $emp->id)->firstOrFail();
 
-        $this->assertEqualsWithDelta(350.0, (float) $item->weekly_amount, 0.001);
+        $this->assertEqualsWithDelta(175.0, (float) $item->weekly_amount, 0.001, 'the hours worked, without the settlement');
+        $this->assertEqualsWithDelta(350.0, (float) $item->gross_amount, 0.001);
         $this->assertEqualsWithDelta(175.0, (float) $item->bh_amount, 0.001);
         $this->assertEqualsWithDelta(175.0, (float) $item->bh_cash, 0.001, '0% to bank means all cash');
         $this->assertEqualsWithDelta(0.0, (float) $item->bh_bank, 0.001);
@@ -685,13 +689,14 @@ class AttendanceServiceTest extends TestCase
         $item = \App\Models\PayrollItem::where('employee_id', $emp->id)->firstOrFail();
 
         $this->assertEqualsWithDelta(135.0, (float) $item->bh_amount, 0.001);
-        $this->assertEqualsWithDelta(216.0, (float) $item->weekly_amount, 0.001);
+        $this->assertEqualsWithDelta(135.0, (float) $item->weekly_amount, 0.001);
+        $this->assertEqualsWithDelta(216.0, (float) $item->gross_amount, 0.001);
     }
 
     public function test_a_bank_holiday_week_does_not_create_a_phantom_advance(): void
     {
-        // advance_given is derived as bank - weekly in several places. The premium
-        // lives inside weekly_amount, so a BH week must not look like an advance.
+        // advance_given is derived as bank - gross in several places. The cash
+        // share is part of gross, so a BH week must not look like an advance.
         \App\Models\Holiday::factory()->on('2026-07-27')->create();
 
         $emp = Employee::factory()->create([
@@ -735,7 +740,8 @@ class AttendanceServiceTest extends TestCase
 
         $this->assertEqualsWithDelta(135.0, (float) $settlementWeek->bh_amount, 0.001, 'the month clears here');
         $this->assertEqualsWithDelta(81.0, (float) $settlementWeek->bh_cash, 0.001);
-        $this->assertEqualsWithDelta(216.0, (float) $settlementWeek->weekly_amount, 0.001);
+        $this->assertEqualsWithDelta(135.0, (float) $settlementWeek->weekly_amount, 0.001, 'the settlement does not inflate the week');
+        $this->assertEqualsWithDelta(216.0, (float) $settlementWeek->gross_amount, 0.001);
     }
 
     public function test_every_holiday_in_the_month_accumulates_into_one_settlement(): void

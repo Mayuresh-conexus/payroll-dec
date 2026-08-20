@@ -18,6 +18,7 @@ class PayrollItem extends Model
         'bh_amount',
         'bh_cash',
         'bh_bank',
+        'bh_cash_override',
         'leave_days',
         'leave_hours',
         'leave_amount',

@@ -154,29 +154,56 @@
                                     @continue
                                 @endif
 
-                                <td class="px-1 py-1 align-top text-center {{ $isHoliday ? 'bg-violet-50/70' : '' }}">
-                                    @php
-                                        $isWeekendOff = $defaultWorkingDays == 6
-                                            ? $d === 'sun'
-                                            : in_array($d, ['sat', 'sun']);
-                                        $dayKey   = "attendance.{$employee->id}.days.{$d}";
-                                        $hoursKey = "attendance.{$employee->id}.hours_map.{$d}";
-                                        $defaultHourValue = $employee->type === 'hourly'
-                                            ? ($isWeekendOff ? 0 : $defaultHours)
-                                            : 0;
-                                        if ($employee->type === 'hourly') {
-                                            $hVal    = old($hoursKey, $hHours[$d] ?? $defaultHourValue);
-                                            $checked = (int) old($dayKey, (float) $hVal > 0 ? 1 : 0);
-                                        } else {
-                                            $checked = (int) old($dayKey, $daysMap[$d] ?? ($isWeekendOff ? 0 : 1));
-                                        }
-                                        $oVal = old("attendance.{$employee->id}.overtime_map.{$d}", $dOtMap[$d] ?? 0);
-                                        $leave = $leaveMap[$employee->id][$d] ?? null;
-                                    @endphp
+                                @php
+                                    $isWeekendOff = $defaultWorkingDays == 6
+                                        ? $d === 'sun'
+                                        : in_array($d, ['sat', 'sun']);
+                                    $dayKey   = "attendance.{$employee->id}.days.{$d}";
+                                    $hoursKey = "attendance.{$employee->id}.hours_map.{$d}";
+                                    $defaultHourValue = $employee->type === 'hourly'
+                                        ? ($isWeekendOff ? 0 : $defaultHours)
+                                        : 0;
+                                    $leave = $leaveMap[$employee->id][$d] ?? null;
 
+                                    // Before anything has been saved for the week, every weekday
+                                    // defaults to present so the admin only has to click the
+                                    // exceptions. A day already covered by leave is exactly that
+                                    // kind of exception, so it defaults to absent instead — but
+                                    // only when there is no saved attendance to override, since a
+                                    // value actually saved always wins.
+                                    $hasSavedAttendance = $employee->type === 'hourly' ? $hAtt !== null : $dAtt !== null;
+                                    $defaultPresent = ($isWeekendOff || $leave) ? 0 : 1;
+
+                                    if ($employee->type === 'hourly') {
+                                        $hVal    = old($hoursKey, $hasSavedAttendance ? ($hHours[$d] ?? 0) : ($defaultPresent ? $defaultHourValue : 0));
+                                        $checked = (int) old($dayKey, $hasSavedAttendance ? ((float) ($hHours[$d] ?? 0) > 0 ? 1 : 0) : $defaultPresent);
+                                    } else {
+                                        $checked = (int) old($dayKey, $hasSavedAttendance ? ($daysMap[$d] ?? 0) : $defaultPresent);
+                                    }
+                                    $oVal = old("attendance.{$employee->id}.overtime_map.{$d}", $dOtMap[$d] ?? 0);
+
+                                    // A day that would show L is locked, not toggled — leave pay
+                                    // comes from the leave record itself, not from this grid, so an
+                                    // accidental click here can never undo it. A day already
+                                    // explicitly saved present is the one exception: that saved
+                                    // value stands until the admin changes it back.
+                                    $isLockedLeave = $leave && ! $checked;
+                                @endphp
+
+                                @if ($isLockedLeave)
+                                    <td class="px-1 py-1 align-top text-center bg-sky-50/70">
+                                        <div class="flex flex-col items-center gap-1"
+                                            title="On leave{{ $leave->reason ? ' — '.$leave->reason : '' }}. Edit or delete the leave record on the Leave page to change this.">
+                                            <span class="w-7 h-7 rounded-full bg-sky-500 text-white flex items-center justify-center text-[11px] font-semibold">L</span>
+                                            <span class="mt-1 text-[10px] text-slate-400">&nbsp;</span>
+                                        </div>
+                                    </td>
+                                    @continue
+                                @endif
+
+                                <td class="px-1 py-1 align-top text-center {{ $isHoliday ? 'bg-violet-50/70' : '' }}">
                                     <div data-day="{{ $d }}" x-data="{
                                         present: {{ $checked ? 'true' : 'false' }},
-                                        onLeave: {{ $leave ? 'true' : 'false' }},
                                         inputName: 'attendance[{{ $employee->id }}][days][{{ $d }}]',
                                         hoursName: 'attendance[{{ $employee->id }}][hours_map][{{ $d }}]',
                                         hoursVal: {{ $checked ? $hHours[$d] ?? $defaultHourValue : 0 }}
@@ -184,10 +211,9 @@
 
                                         <button type="button"
                                             @click="present = !present; if (present) { hoursVal = hoursVal > 0 ? hoursVal : {{ $defaultHours }} } else { hoursVal = 0 }"
-                                            :class="present ? 'bg-emerald-500 text-white' : (onLeave ? 'bg-sky-500 text-white' : 'bg-red-500 text-white')"
-                                            class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold shadow-sm transition-colors duration-150"
-                                            @if ($leave) title="On leave{{ $leave->reason ? ' — '.$leave->reason : '' }}. Click to mark present if they worked instead." @endif>
-                                            <span x-text="present ? 'P' : (onLeave ? 'L' : 'A')"></span>
+                                            :class="present ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'"
+                                            class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold shadow-sm transition-colors duration-150">
+                                            <span x-text="present ? 'P' : 'A'"></span>
                                         </button>
 
                                         <input type="hidden" :name="inputName" :value="present ? 1 : 0">

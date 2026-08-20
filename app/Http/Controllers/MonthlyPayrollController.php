@@ -225,7 +225,11 @@ class MonthlyPayrollController extends Controller
                     continue;
                 }
 
-                $itWeekly = (float) ($it->weekly_amount ?? 0);
+                // weekly_amount is the week's own earnings; the bank-holiday cash
+                // share sits alongside it. The month wants both, so they are added
+                // back together here — this is the same total the weekly page
+                // splits into cash and bank.
+                $itWeekly = (float) ($it->weekly_amount ?? 0) + (float) ($it->bh_cash ?? 0);
                 $addons = $it->addons ?? null;
                 if (is_string($addons)) {
                     $addons = json_decode($addons, true);

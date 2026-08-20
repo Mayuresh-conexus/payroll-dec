@@ -40,9 +40,16 @@ class BackupEnvironmentReport
     {
         $checks = [];
         $processes = $this->checkProcessFunctions();
+        $shellAvailable = $processes['status'] === self::PASS;
+
+        $checks[] = $this->check(
+            'Backup engine',
+            self::PASS,
+            $shellAvailable ? 'mysqldump' : 'PHP (PDO) — proc_open unavailable, running over the database connection'
+        );
         $checks[] = $processes;
 
-        if ($processes['status'] === self::PASS) {
+        if ($shellAvailable) {
             $checks[] = $this->checkBinary('mysql', config('backup.mysql_path'));
             $checks[] = $this->checkBinary('mysqldump', config('backup.mysqldump_path'));
             $checks[] = $this->checkConnection();
@@ -51,12 +58,13 @@ class BackupEnvironmentReport
                 $checks[] = $size;
             }
         } else {
-            // Everything else shells out, so without proc_open they would all fail
-            // for the same single reason. Four faults where there is one buries
-            // the cause, so they are skipped and said plainly instead.
-            foreach (['mysql', 'mysqldump', 'Database connection'] as $label) {
-                $checks[] = $this->check($label, self::SKIP, 'skipped — needs proc_open');
+            // The mysql client is unreachable here, so those checks say nothing.
+            // What matters instead is whether the fallback can do the job.
+            foreach (['mysql', 'mysqldump'] as $label) {
+                $checks[] = $this->check($label, self::SKIP, 'not used by the PHP engine');
             }
+
+            $checks[] = $this->checkPdoEngine();
         }
 
         foreach ($this->limits() as $limit) {
@@ -88,9 +96,55 @@ class BackupEnvironmentReport
             }
         }
 
-        return $missing === []
-            ? $this->check('PHP process functions', self::PASS, 'proc_open available')
-            : $this->check('PHP process functions', self::FAIL, implode(', ', $missing).' disabled in php.ini');
+        if ($missing === []) {
+            return $this->check('PHP process functions', self::PASS, 'proc_open available');
+        }
+
+        // Not a failure any more: the PHP engine covers this. Reported so the
+        // reason the slower engine is in use is on the page, not a mystery.
+        return $this->check(
+            'PHP process functions',
+            self::SKIP,
+            implode(', ', $missing).' disabled in php.ini — using the PHP engine instead'
+        );
+    }
+
+    /**
+     * Can the fallback actually reach the database and carry this schema?
+     */
+    private function checkPdoEngine(): array
+    {
+        $engine = app(PdoBackupEngine::class);
+
+        [$elapsed, $failure] = $this->timedCall(function () use ($engine): void {
+            $engine->preflight();
+        });
+
+        if ($failure !== null) {
+            return $this->check('Database connection (PDO)', self::FAIL, $failure);
+        }
+
+        $db = config('database.connections.mysql');
+        $target = ! empty($db['unix_socket']) ? $db['unix_socket'] : $db['host'].':'.$db['port'];
+
+        return $this->check('Database connection (PDO)', self::PASS, 'reachable via '.$target, $elapsed);
+    }
+
+    /**
+     * @return array{0: float, 1: string|null} elapsed, failure message
+     */
+    private function timedCall(callable $callback): array
+    {
+        $start = microtime(true);
+
+        try {
+            $callback();
+            $failure = null;
+        } catch (\Throwable $e) {
+            $failure = $e->getMessage();
+        }
+
+        return [microtime(true) - $start, $failure];
     }
 
     private function checkBinary(string $label, string $path): array

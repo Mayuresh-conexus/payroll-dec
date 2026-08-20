@@ -63,15 +63,44 @@ class BackupManagementTest extends TestCase
         $response->assertSee('PHP process functions')->assertSee('the PHP that actually runs your backups');
     }
 
-    public function test_diagnostics_reports_process_functions_first(): void
+    public function test_diagnostics_leads_with_the_engine_that_will_run(): void
     {
-        // Everything else shells out, so if proc_open is missing the rest is
-        // skipped rather than reported as four separate faults.
+        // Which engine is in use decides what every other line means, so it is
+        // the headline rather than something to infer from a proc_open failure.
         $this->actingAs($this->admin());
 
         $report = $this->get('/backups/diagnostics')->assertOk()->viewData('report');
 
-        $this->assertSame('PHP process functions', $report['checks'][0]['label']);
+        $this->assertSame('Backup engine', $report['checks'][0]['label']);
+        $this->assertSame('PHP process functions', $report['checks'][1]['label']);
+    }
+
+    public function test_a_host_without_proc_open_is_reported_as_working_not_broken(): void
+    {
+        // The PHP engine covers that case now, so a missing proc_open is a note
+        // about which engine is running — not a failed check.
+        $this->actingAs($this->admin());
+
+        $report = $this->get('/backups/diagnostics')->assertOk()->viewData('report');
+
+        $engine = collect($report['checks'])->firstWhere('label', 'Backup engine');
+        $processes = collect($report['checks'])->firstWhere('label', 'PHP process functions');
+
+        $this->assertSame(\App\Services\BackupEnvironmentReport::PASS, $engine['status']);
+        $this->assertNotSame(
+            \App\Services\BackupEnvironmentReport::FAIL,
+            $processes['status'],
+            'a disabled proc_open must not read as a fatal fault now there is a fallback'
+        );
+    }
+
+    public function test_the_service_picks_an_engine_from_what_the_host_allows(): void
+    {
+        $service = app(\App\Services\DatabaseBackupService::class);
+
+        // proc_open is available in the test runner, so mysqldump is preferred.
+        $this->assertFalse($service->usePdoEngine());
+        $this->assertSame('mysqldump', $service->engineName());
     }
 
     public function test_the_backups_page_links_to_diagnostics(): void

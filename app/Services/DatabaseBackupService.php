@@ -165,7 +165,12 @@ class DatabaseBackupService
             return;
         }
 
-        $this->assertProcessFunctionsAvailable();
+        if ($this->usePdoEngine()) {
+            app(PdoBackupEngine::class)->preflight();
+            $this->preflightPassed = true;
+
+            return;
+        }
 
         $optionFile = $this->writeMysqlOptionFile();
 
@@ -179,22 +184,28 @@ class DatabaseBackupService
     }
 
     /**
-     * Shared hosting commonly disables proc_open, which Symfony Process needs.
-     * Without this check the failure surfaces as an opaque fatal error deep in
-     * the vendor stack rather than something an admin can act on.
+     * Whether backups have to run over the database connection instead of by
+     * shelling out to mysqldump.
+     *
+     * Symfony Process needs proc_open, and locked-down shared hosting disables
+     * it at a level the account cannot change. Rather than refuse to back up at
+     * all on such a host, fall back to the PDO engine — mysqldump stays the
+     * default wherever it is actually reachable, because it is faster and
+     * carries schema features the fallback does not.
      */
-    private function assertProcessFunctionsAvailable(): void
+    public function usePdoEngine(): bool
     {
         $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
 
-        foreach (['proc_open', 'proc_close'] as $function) {
-            if (! function_exists($function) || in_array($function, $disabled, true)) {
-                throw new RuntimeException(
-                    "PHP's {$function}() is disabled on this server, so backups cannot run. "
-                    .'Remove it from disable_functions in php.ini (or ask your host to).'
-                );
-            }
-        }
+        return ! function_exists('proc_open') || in_array('proc_open', $disabled, true);
+    }
+
+    /**
+     * Which engine will run, for the diagnostics page and the audit trail.
+     */
+    public function engineName(): string
+    {
+        return $this->usePdoEngine() ? 'PHP (PDO)' : 'mysqldump';
     }
 
     private function assertDatabaseReachable(string $optionFile): void
@@ -239,6 +250,12 @@ class DatabaseBackupService
 
     private function runDump(string $optionFile, string $destPath): void
     {
+        if ($this->usePdoEngine()) {
+            app(PdoBackupEngine::class)->dump($destPath);
+
+            return;
+        }
+
         $command = [
             config('backup.mysqldump_path'),
             '--defaults-extra-file='.$optionFile,
@@ -301,6 +318,12 @@ class DatabaseBackupService
 
     private function runRestore(string $optionFile, string $sourcePath): void
     {
+        if ($this->usePdoEngine()) {
+            app(PdoBackupEngine::class)->restore($sourcePath);
+
+            return;
+        }
+
         $process = new Process([
             config('backup.mysql_path'),
             '--defaults-extra-file='.$optionFile,

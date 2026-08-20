@@ -105,17 +105,22 @@
                 },
 
                 /**
-                 * Restore is a synchronous request, so swap the dialog into a busy
-                 * state and warn against closing the tab. The elapsed counter keeps
-                 * the spinner honest: a healthy restore of this database finishes in
-                 * about a second, so a climbing number is itself the diagnosis.
+                 * Restore is a synchronous form post, so swap the dialog into a busy
+                 * state. The elapsed counter keeps the spinner honest: a healthy
+                 * restore of this database finishes in about a second, so a climbing
+                 * number is itself the diagnosis.
+                 *
+                 * Deliberately no beforeunload guard. This form navigates, and that
+                 * navigation is what delivers the result — an unload prompt fires on
+                 * it too, and dismissing the prompt strands the page on a spinner
+                 * that counts forever while the server has already answered. The
+                 * dialog says not to close the tab; that has to be enough.
                  */
                 beginRestore() {
                     this.restoring = true;
                     this.restoreSeconds = 0;
                     clearInterval(this.restoreTimer);
                     this.restoreTimer = setInterval(() => this.restoreSeconds++, 1000);
-                    window.onbeforeunload = () => true;
                 },
                 openDelete(backup) {
                     this.deleteTarget = backup;

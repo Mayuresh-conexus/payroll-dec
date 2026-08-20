@@ -991,6 +991,103 @@ class PayrollWeekTest extends TestCase
         return $emp;
     }
 
+    public function test_the_page_spells_out_which_seven_days_the_week_covers(): void
+    {
+        // Week 31 of 2026 runs Mon 27 Jul .. Sun 2 Aug. Getting this wrong would
+        // be worse than not showing it, so the dates are asserted, not just the
+        // presence of the cards.
+        $this->actingAs($this->admin());
+
+        $html = $this->get('/payroll?year=2026&week=31')->assertOk()->getContent();
+
+        $this->assertStringContainsString('27 Jul', $html);
+        $this->assertStringContainsString('Mon', $html);
+        $this->assertStringContainsString('2 Aug', $html);
+        $this->assertStringContainsString('Sun', $html);
+        // Read by anyone who cannot see the two cards as a range.
+        $this->assertStringContainsString('Payroll week 31: 27 Jul 2026 to 2 Aug 2026', $html);
+    }
+
+    public function test_the_week_range_shows_before_any_payroll_has_been_generated(): void
+    {
+        // The range is orientation, not a result — it has to be there on a week
+        // nobody has touched yet, which is exactly when it is most needed.
+        $this->actingAs($this->admin());
+
+        $this->get('/payroll?year=2026&week=44')
+            ->assertOk()
+            ->assertSee('26 Oct')
+            ->assertSee('1 Nov');
+    }
+
+    public function test_the_current_week_is_flagged_on_the_week_selector(): void
+    {
+        // The note hangs off the selector it describes, so the selector squares
+        // off where the two meet.
+        $this->actingAs($this->admin());
+
+        $now = now();
+        $html = $this->get("/payroll?year={$now->isoWeekYear}&week={$now->isoWeek}")->assertOk()->getContent();
+
+        $this->assertStringContainsString('Current week', $html);
+        $this->assertStringContainsString('rounded-b-lg border border-t-0 border-emerald-200', $html);
+        $this->assertStringContainsString('rounded-t-lg', $html, 'the selector joins the note below it');
+
+        $past = now()->subWeeks(6);
+        $this->get("/payroll?year={$past->isoWeekYear}&week={$past->isoWeek}")
+            ->assertOk()
+            ->assertDontSee('Current week');
+    }
+
+    public function test_the_exports_are_offered_as_labelled_icons(): void
+    {
+        // Icon-only controls still have to say what they do for anyone reading
+        // the page with a screen reader or hovering for a tooltip.
+        $this->actingAs($this->admin());
+        $emp = $this->settlementWeekEmployee();
+
+        $html = $this->get('/payroll?year=2026&week=31')->assertOk()->getContent();
+
+        $this->assertStringContainsString('images/xls.svg', $html);
+        $this->assertStringContainsString('images/pdf.svg', $html);
+        $this->assertStringContainsString('data-tooltip="Export report in Excel"', $html);
+        $this->assertStringContainsString('data-tooltip="Export report in PDF"', $html);
+        $this->assertStringContainsString('aria-label="Export report in Excel"', $html);
+        $this->assertStringContainsString('aria-label="Export report in PDF"', $html);
+    }
+
+    public function test_the_exports_sit_with_the_weeks_other_actions(): void
+    {
+        // They belong next to recalculating and finalising, not up in the toolbar
+        // that only chooses which week you are looking at.
+        $this->actingAs($this->admin());
+        $this->settlementWeekEmployee();
+
+        $html = $this->get('/payroll?year=2026&week=31')->assertOk()->getContent();
+
+        $banner = substr($html, strpos($html, 'Recalculate from Attendance'));
+        $banner = substr($banner, 0, strpos($banner, 'Finalize Week'));
+
+        $this->assertStringContainsString('images/xls.svg', $banner, 'Excel sits between the two buttons');
+        $this->assertStringContainsString('images/pdf.svg', $banner, 'PDF sits between the two buttons');
+    }
+
+    public function test_the_exports_are_available_on_a_finalised_week_too(): void
+    {
+        // A finalised week renders a different banner and is the one most likely
+        // to be exported, so the icons have to be in both states.
+        $this->actingAs($this->admin());
+        $this->settlementWeekEmployee();
+
+        PayrollRun::where('year', 2026)->where('week_number', 31)->update(['status' => 'final']);
+
+        $html = $this->get('/payroll?year=2026&week=31')->assertOk()->getContent();
+
+        $this->assertStringContainsString('Revert to Draft', $html, 'the finalised banner is the one rendering');
+        $this->assertStringContainsString('images/xls.svg', $html);
+        $this->assertStringContainsString('images/pdf.svg', $html);
+    }
+
     public function test_the_cash_cell_carries_a_tab_showing_the_bank_holiday_share_inside_it(): void
     {
         $emp = $this->settlementWeekEmployee();

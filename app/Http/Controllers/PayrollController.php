@@ -66,11 +66,17 @@ class PayrollController extends Controller
         // The leave column only earns its place in a week where someone took some.
         $showLeave = $rows->contains(fn (array $row): bool => (float) ($row['leave_amount'] ?? 0) > 0);
 
+        // The week in progress is the one most likely to be opened by mistake,
+        // since its attendance is unfinished and the totals will still move.
+        $weekStart = Carbon::now()->setISODate($year, $week, 1)->startOfDay();
+        $isCurrentWeek = now()->betweenIncluded($weekStart, $weekStart->copy()->addDays(6)->endOfDay());
+
         return view('payroll.index', [
             'year' => $year,
             'week' => $week,
             'showBankHoliday' => $showBankHoliday,
             'showLeave' => $showLeave,
+            'isCurrentWeek' => $isCurrentWeek,
             'month' => $month,
             'run' => $run,
             'rows' => $rows,

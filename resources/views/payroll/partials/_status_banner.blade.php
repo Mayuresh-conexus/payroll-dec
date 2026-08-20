@@ -30,13 +30,17 @@
                         <span class="text-emerald-700/70 ml-1">— this payroll is locked and read-only.</span>
                     </div>
                 </div>
-                <button type="button" @click="revertOpen = true"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-xs font-medium text-amber-700 hover:bg-amber-100 hover:border-amber-400 transition shadow-sm flex-shrink-0">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"/>
-                    </svg>
-                    Revert to Draft
-                </button>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    @include('payroll.partials._export_actions')
+
+                    <button type="button" @click="revertOpen = true"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-xs font-medium text-amber-700 hover:bg-amber-100 hover:border-amber-400 transition shadow-sm">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"/>
+                        </svg>
+                        Revert to Draft
+                    </button>
+                </div>
             </div>
 
             {{-- Revert confirmation modal --}}
@@ -118,6 +122,8 @@
                         </svg>
                         Recalculate from Attendance
                     </button>
+
+                    @include('payroll.partials._export_actions')
 
                     {{-- Finalize button --}}
                     <form action="{{ route('payroll.finalizeWeek') }}" method="POST"

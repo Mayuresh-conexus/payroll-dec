@@ -2,10 +2,15 @@
 
 namespace App\Models;
 
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Model;
 
 class DailyRateAttendance extends Model
 {
+    // Attendance is the most-edited thing in the system and was the one part
+    // not recorded, so "who marked this week?" had no answer. It does now.
+    use Auditable;
+
     protected $fillable = [
         'employee_id',
         'year',
@@ -21,7 +26,7 @@ class DailyRateAttendance extends Model
     protected $casts = [
         'days_map' => 'array',
         'overtime_map' => 'array',
-        'locked'   => 'boolean',
+        'locked' => 'boolean',
         'overtime_amount' => 'float',
     ];
 

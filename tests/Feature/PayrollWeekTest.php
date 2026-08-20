@@ -1268,6 +1268,21 @@ class PayrollWeekTest extends TestCase
         $this->assertStringContainsString('bh_bank_reduced', $html, 'the bank-cut warning is on the page');
     }
 
+    public function test_the_bank_holiday_group_reads_bank_then_total(): void
+    {
+        // The component before the sum, so the group closes on the figure the
+        // other two add up to.
+        $emp = $this->settlementWeekEmployee();
+
+        $html = $this->get('/payroll?year=2026&week=31')->assertOk()->getContent();
+
+        $this->assertLessThan(
+            strpos($html, 'data-col="bh_total"'),
+            strpos($html, 'data-col="bh_bank"'),
+            'the bank column should come before the total'
+        );
+    }
+
     public function test_lowering_cash_moves_the_difference_into_bank(): void
     {
         // Cash leads and bank absorbs, so the row always accounts for all 859.

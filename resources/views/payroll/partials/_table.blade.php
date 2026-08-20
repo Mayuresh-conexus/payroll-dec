@@ -66,8 +66,8 @@
                     <th class="w-[115px] px-4 py-2 text-right font-medium normal-case">Cash</th>
                     <th class="w-[115px] px-4 py-2 text-right font-medium normal-case">Bank</th>
                     @if ($showBh)
-                        <th class="{{ $groupEdge }} w-[100px] px-4 py-2 text-right font-medium normal-case text-violet-700">Total</th>
-                        <th class="w-[100px] px-4 py-2 text-right font-medium normal-case text-violet-700">Bank</th>
+                        <th class="{{ $groupEdge }} w-[100px] px-4 py-2 text-right font-medium normal-case text-violet-700">Bank</th>
+                        <th class="w-[100px] px-4 py-2 text-right font-medium normal-case text-violet-700">Total</th>
                     @endif
                 </tr>
             </thead>
@@ -241,8 +241,36 @@
                                 $bhInput = 'no-spinner w-20 text-right font-mono text-sm text-violet-700 border border-violet-200 rounded-lg px-2 py-1.5 bg-violet-50/40 focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 outline-none transition-all shadow-sm';
                             @endphp
 
-                            {{-- Total --}}
+                            {{-- Bank --}}
                             <td class="{{ $groupEdge }} px-4 py-3 text-right align-top">
+                                @if ($bhEditable)
+                                    <input type="number" min="0" step="0.01"
+                                        x-model.number="items[{{ $index }}].bh_bank"
+                                        @input="updateBhBank({{ $index }})"
+                                        @focus="$event.target.select()"
+                                        @keydown.enter.prevent="focusSiblingRow($event, $event.shiftKey ? -1 : 1)"
+                                        data-col="bh_bank" data-row="{{ $index }}"
+                                        title="The share transferred to the bank, on top of the weekly bank amount. The rest of the total is paid in cash."
+                                        class="{{ $bhInput }}">
+
+                                    {{-- Shown while editing, not discovered afterwards: this
+                                         is a figure the admin did not type being changed. --}}
+                                    <template x-if="items[{{ $index }}].bh_bank_reduced > 0">
+                                        <div class="mt-1 flex items-center justify-end">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-semibold whitespace-nowrap"
+                                                :title="'The total is smaller than the bank share, so ' + formatMoney(items[{{ $index }}].bh_bank_reduced) + ' was taken off the bank to fit. Cash is 0.'">
+                                                bank cut <span class="ml-0.5" x-text="formatMoney(items[{{ $index }}].bh_bank_reduced)"></span>
+                                            </span>
+                                        </div>
+                                    </template>
+                                @elseif ($rowHasPremium)
+                                    <span class="font-mono text-sm text-violet-700">{{ number_format($row['bh_bank'], 2) }}</span>
+                                @else
+                                    <span class="text-slate-300 text-sm select-none">—</span>
+                                @endif
+                            </td>
+                            {{-- Total --}}
+                            <td class="px-4 py-3 text-right align-top">
                                 @if ($bhEditable)
                                     <input type="number" min="0" step="0.01"
                                         x-model.number="items[{{ $index }}].bh_amount"
@@ -275,34 +303,6 @@
                                 @endif
                             </td>
 
-                            {{-- Bank --}}
-                            <td class="px-4 py-3 text-right align-top">
-                                @if ($bhEditable)
-                                    <input type="number" min="0" step="0.01"
-                                        x-model.number="items[{{ $index }}].bh_bank"
-                                        @input="updateBhBank({{ $index }})"
-                                        @focus="$event.target.select()"
-                                        @keydown.enter.prevent="focusSiblingRow($event, $event.shiftKey ? -1 : 1)"
-                                        data-col="bh_bank" data-row="{{ $index }}"
-                                        title="The share transferred to the bank, on top of the weekly bank amount. The rest of the total is paid in cash."
-                                        class="{{ $bhInput }}">
-
-                                    {{-- Shown while editing, not discovered afterwards: this
-                                         is a figure the admin did not type being changed. --}}
-                                    <template x-if="items[{{ $index }}].bh_bank_reduced > 0">
-                                        <div class="mt-1 flex items-center justify-end">
-                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-semibold whitespace-nowrap"
-                                                :title="'The total is smaller than the bank share, so ' + formatMoney(items[{{ $index }}].bh_bank_reduced) + ' was taken off the bank to fit. Cash is 0.'">
-                                                bank cut <span class="ml-0.5" x-text="formatMoney(items[{{ $index }}].bh_bank_reduced)"></span>
-                                            </span>
-                                        </div>
-                                    </template>
-                                @elseif ($rowHasPremium)
-                                    <span class="font-mono text-sm text-violet-700">{{ number_format($row['bh_bank'], 2) }}</span>
-                                @else
-                                    <span class="text-slate-300 text-sm select-none">—</span>
-                                @endif
-                            </td>
                         @endif
 
                         {{-- Leave — paid at the week's own rate and already inside the
@@ -431,8 +431,8 @@
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.cash)"></span></td>
                         <td class="px-4 py-3 text-right font-semibold text-slate-800"><span x-text="formatMoney(totals.bank)"></span></td>
                         @if ($showBh)
-                            <td class="{{ $groupEdge }} px-4 py-3 text-right font-semibold text-violet-700"><span x-text="formatMoney(totals.bhAmount)"></span></td>
-                            <td class="px-4 py-3 text-right font-semibold text-violet-700"><span x-text="formatMoney(totals.bhBank)"></span></td>
+                            <td class="{{ $groupEdge }} px-4 py-3 text-right font-semibold text-violet-700"><span x-text="formatMoney(totals.bhBank)"></span></td>
+                            <td class="px-4 py-3 text-right font-semibold text-violet-700"><span x-text="formatMoney(totals.bhAmount)"></span></td>
                         @endif
                         @if ($showLeaveColumn)
                             <td class="{{ $groupEdge }} px-4 py-3 text-right font-semibold text-sky-700">{{ number_format($leaveTotal, 2) }}</td>
